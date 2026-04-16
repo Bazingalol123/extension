@@ -1,144 +1,67 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React from 'react'
+import useStore from '../store'
+import { Messages } from '@shared/messages.js'
 
-/**
- * Bottom toolbar with a "+" mini-menu (New Tab / New Space / New Folder),
- * History, Downloads, and Settings buttons.
- *
- * @param {{ onNewTab?: () => void, onNewSpace?: () => void, onNewFolder?: () => void }} props
- */
-export default function BottomBar({ onNewTab, onNewSpace, onNewFolder }) {
-  const [showPlusMenu, setShowPlusMenu] = useState(false)
-  const wrapperRef = useRef(null)
+function openTabSwitcher() {
+  chrome.runtime.sendMessage({
+    type: Messages.TAB_SWITCHER_OPEN,
+    screenWidth:  window.screen.width,
+    screenHeight: window.screen.height,
+  }).catch(() => {})
+}
 
-  // Close the plus menu when clicking outside
-  useEffect(() => {
-    if (!showPlusMenu) return
-    const handleClickOutside = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-        setShowPlusMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showPlusMenu])
+export default function BottomBar({ onNewTab, onNewSpace, onNewFolder, onSessions, darkMode, onToggleDarkMode }) {
+  const { activeSpaceId, suspendSpace } = useStore()
 
-  const handleSettings = () => {
-    chrome.runtime?.openOptionsPage?.() ??
-      chrome.tabs.create({ url: 'chrome://extensions/' })
-  }
+  const darkIcon  = darkMode === 'dark' ? '☀️' : darkMode === 'light' ? '🌙' : '🌗'
+  const darkTitle = darkMode === 'dark' ? 'Light mode' : darkMode === 'light' ? 'Dark mode' : 'Auto (follows OS)'
 
   return (
     <div className="bottom-bar">
-      {/* Plus mini-menu wrapper */}
-      <div className="plus-menu-wrapper" ref={wrapperRef}>
-        {showPlusMenu && (
-          <div className="plus-menu">
-            <button
-              className="plus-menu-item"
-              onClick={() => {
-                if (onNewTab) onNewTab()
-                else chrome.tabs.create({})
-                setShowPlusMenu(false)
-              }}
-            >
-              <span>⊕</span> New Tab
-            </button>
-            <button
-              className="plus-menu-item"
-              onClick={() => {
-                if (onNewSpace) onNewSpace()
-                setShowPlusMenu(false)
-              }}
-            >
-              <span>◈</span> New Space
-            </button>
-            <button
-              className="plus-menu-item"
-              onClick={() => {
-                if (onNewFolder) onNewFolder()
-                setShowPlusMenu(false)
-              }}
-            >
-              <span>📁</span> New Folder
-            </button>
-          </div>
-        )}
+      {/* New Tab */}
+      <button className="bottom-btn new-tab" onClick={onNewTab} title="New Tab (Ctrl+T)">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        New Tab
+      </button>
 
-        <button
-          className="bottom-btn new-tab"
-          onClick={() => setShowPlusMenu((v) => !v)}
-          title="New Tab / Space / Folder"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-          >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </button>
-      </div>
-
-      {/* History */}
-      <button
-        className="bottom-btn"
-        onClick={() => chrome.tabs.create({ url: 'chrome://history/' })}
-        title="History"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        >
-          <polyline points="1 4 1 10 7 10" />
-          <path d="M3.51 15a9 9 0 1 0 .49-4.44" />
+      {/* Tab Switcher — Ctrl+Tab can't be intercepted by JS; this button is the reliable trigger */}
+      <button className="bottom-btn" onClick={openTabSwitcher} title="Tab Switcher (Ctrl+Q)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <rect x="2" y="3" width="9" height="7" rx="1"/>
+          <rect x="13" y="3" width="9" height="7" rx="1"/>
+          <rect x="2" y="14" width="9" height="7" rx="1"/>
+          <rect x="13" y="14" width="9" height="7" rx="1"/>
         </svg>
       </button>
 
-      {/* Downloads */}
-      <button
-        className="bottom-btn"
-        onClick={() => chrome.tabs.create({ url: 'chrome://downloads/' })}
-        title="Downloads"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        >
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
+      {/* New Space */}
+      <button className="bottom-btn" onClick={onNewSpace} title="New Space">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
         </svg>
       </button>
 
-      {/* Settings */}
-      <button className="bottom-btn" onClick={handleSettings} title="Settings">
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      {/* New Folder */}
+      <button className="bottom-btn" onClick={onNewFolder} title="New Folder">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
+      </button>
+
+      {/* Sessions */}
+      <button className="bottom-btn" onClick={onSessions} title="Sessions">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </button>
+
+      {/* Dark mode toggle */}
+      <button className="bottom-btn" onClick={onToggleDarkMode} title={darkTitle} style={{ fontSize: 14 }}>
+        {darkIcon}
       </button>
     </div>
   )

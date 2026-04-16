@@ -2,79 +2,89 @@ import { create } from 'zustand'
 import { Messages } from '@shared/messages.js'
 
 /**
- * Send a message to the background service worker.
- * @param {string} type - Message type from Messages enum
- * @param {object} payload - Additional data to include
+ * Send a message to the background service worker and return the response.
+ * @param {string} type
+ * @param {object} [payload]
+ * @returns {Promise<object|null>}
  */
-const sendMessage = (type, payload = {}) =>
-  chrome.runtime.sendMessage({ type, ...payload })
+async function sendMessage(type, payload = {}) {
+  try {
+    return await chrome.runtime.sendMessage({ type, ...payload })
+  } catch (err) {
+    console.warn('Arc store message failed:', type, err)
+    return null
+  }
+}
 
 /**
- * Normalize raw state from background, ensuring all fields have defaults.
- * @param {object} rawState - State received from background
+ * Parse raw state from the service worker into the Zustand shape.
  */
-const parseState = (rawState) => ({
-  spaces: rawState.spaces ?? [],
-  activeSpaceId: rawState.activeSpaceId ?? '',
-  tabs: rawState.tabs ?? [],
-  favorites: rawState.favorites ?? [],
-  pinnedUrls: rawState.pinnedUrls ?? [],
-  folders: rawState.folders ?? [],
-  sidebarCollapsed: rawState.sidebarCollapsed ?? false,
-  tabAccessOrder: rawState.tabAccessOrder ?? [],
-  loading: false,
-})
+function parseState(rawState) {
+  if (!rawState) return {}
+  return {
+    spaces:          rawState.spaces         ?? [],
+    activeSpaceId:   rawState.activeSpaceId  ?? '',
+    tabs:            rawState.tabs           ?? [],
+    favorites:       rawState.favorites      ?? [],
+    pinnedUrls:      rawState.pinnedUrls     ?? [],
+    folders:         rawState.folders        ?? [],
+    recentlyClosed:  rawState.recentlyClosed ?? [],
+    sidebarCollapsed: rawState.sidebarCollapsed ?? false,
+    tabAccessOrder:  rawState.tabAccessOrder  ?? [],
+    darkMode:        rawState.darkMode        ?? 'auto',
+  }
+}
 
 const useStore = create((set, get) => ({
-  // State from background
-  spaces: [],
-  activeSpaceId: '',
-  tabs: [],
-  favorites: [],
-  pinnedUrls: [],
-  folders: [],
+  // ── State ──────────────────────────────────────────────────────────────────
+  spaces:           [],
+  activeSpaceId:    '',
+  tabs:             [],
+  favorites:        [],
+  pinnedUrls:       [],
+  folders:          [],
+  recentlyClosed:   [],
   sidebarCollapsed: false,
-  tabAccessOrder: [],
+  tabAccessOrder:   [],
+  activeTabId:      null,
+  darkMode:         'auto',
+  loading:          true,
+  sessions:         [],
 
-  // Local UI state
-  loading: true,
-  activeTabId: null,
-
-  // ─── Actions ─────────────────────────────────────────────
-
+  // ── Load ──────────────────────────────────────────────────────────────────
   load: async () => {
     try {
-      const state = await sendMessage(Messages.GET_STATE)
-      if (state) set(parseState(state))
+      const rawState = await sendMessage(Messages.GET_STATE)
+      if (rawState) set({ ...parseState(rawState), loading: false })
 
-      // Track current active tab
+      // Load sessions separately
+      const sessions = await sendMessage(Messages.GET_SESSIONS)
+      if (sessions) set({ sessions })
+
+      // Sync active tab
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (activeTab?.id) set({ activeTabId: activeTab.id })
 
-      // Listen for state updates from background
+      // Listen for state updates pushed from the service worker
       chrome.runtime.onMessage.addListener((msg) => {
         if (msg.type === Messages.STATE_UPDATED && msg.state) {
           set(parseState(msg.state))
-        }
-      })
-
-      // Track tab activation
-      chrome.tabs.onActivated.addListener(({ tabId }) => set({ activeTabId: tabId }))
-
-      // Track tab updates (title, favicon)
-      chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-        if (tab.id) {
-          set((state) => ({
-            tabs: state.tabs.map((t) =>
-              t.id === tab.id
-                ? {
-                    ...t,
-                    title: tab.title || t.title,
-                    favIconUrl: tab.favIconUrl ?? t.favIconUrl,
-                  }
-                : t
-            ),
-          }))
+          // Sync active tab from updated tabs list
+          chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => {
+            if (t?.id) set({ activeTabId: t.id })
+          })
+          // Also keep favicon + title in sync
+          set((state) => {
+            if (!msg.state.tabs) return {}
+            return {
+              tabs: state.tabs.map((t) => {
+                const updated = msg.state.tabs.find((u) => u.id === t.id)
+                return updated
+                  ? { ...t, title: updated.title || t.title, favIconUrl: updated.favIconUrl ?? t.favIconUrl }
+                  : t
+              }),
+            }
+          })
         }
       })
     } catch (err) {
@@ -83,6 +93,7 @@ const useStore = create((set, get) => ({
     }
   },
 
+  // ── Spaces ────────────────────────────────────────────────────────────────
   createSpace: async (name, emoji, color) => {
     const state = await sendMessage(Messages.CREATE_SPACE, { name, emoji, color })
     if (state) set(parseState(state))
@@ -104,8 +115,14 @@ const useStore = create((set, get) => ({
     if (state) set(parseState(state))
   },
 
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  activateTab: (tabId) => {
+    chrome.tabs.update(tabId, { active: true })
+    set({ activeTabId: tabId })
+  },
+
   closeTab: async (tabId) => {
-    set((state) => ({ tabs: state.tabs.filter((t) => t.id !== tabId) }))
+    set((s) => ({ tabs: s.tabs.filter((t) => t.id !== tabId) }))
     await sendMessage(Messages.CLOSE_TAB, { tabId })
   },
 
@@ -123,11 +140,29 @@ const useStore = create((set, get) => ({
     if (state) set(parseState(state))
   },
 
-  activateTab: (tabId) => {
-    chrome.tabs.update(tabId, { active: true })
-    set({ activeTabId: tabId })
+  reorderTabs: async (tabIds) => {
+    const now = Date.now()
+    set((s) => ({
+      tabs: s.tabs.map((tab) => {
+        const idx = tabIds.indexOf(tab.id)
+        if (idx === -1) return tab
+        return { ...tab, openedAt: now - idx }
+      }),
+    }))
+    await sendMessage(Messages.REORDER_TABS, { tabIds })
   },
 
+  suspendTab: async (tabId) => {
+    const state = await sendMessage(Messages.SUSPEND_TAB, { tabId })
+    if (state) set(parseState(state))
+  },
+
+  suspendSpace: async (spaceId) => {
+    const state = await sendMessage(Messages.SUSPEND_SPACE, { spaceId })
+    if (state) set(parseState(state))
+  },
+
+  // ── Favorites ─────────────────────────────────────────────────────────────
   activateFavoriteUrl: (url) => {
     const { tabs } = get()
     const existing = tabs.find((t) => t.url === url)
@@ -141,9 +176,7 @@ const useStore = create((set, get) => ({
 
   addFavorite: async (tab) => {
     const state = await sendMessage(Messages.ADD_FAVORITE, {
-      url: tab.url,
-      title: tab.title,
-      favIconUrl: tab.favIconUrl,
+      url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl,
     })
     if (state) set(parseState(state))
   },
@@ -154,27 +187,19 @@ const useStore = create((set, get) => ({
   },
 
   reorderFavorites: async (ids) => {
-    set((state) => ({
-      favorites: ids
-        .map((id, index) => {
-          const fav = state.favorites.find((f) => f.id === id)
-          return fav ? { ...fav, order: index } : null
-        })
-        .filter((f) => f !== null),
+    set((s) => ({
+      favorites: ids.map((id, index) => {
+        const fav = s.favorites.find((f) => f.id === id)
+        return fav ? { ...fav, order: index } : null
+      }).filter(Boolean),
     }))
     await sendMessage(Messages.REORDER_FAVORITES, { ids })
   },
 
-  setSidebarCollapsed: async (collapsed) => {
-    set({ sidebarCollapsed: collapsed })
-    await sendMessage(Messages.SET_SIDEBAR_COLLAPSED, { collapsed })
-  },
-
+  // ── Pinned URLs ───────────────────────────────────────────────────────────
   pinUrl: async (tab) => {
     const state = await sendMessage(Messages.PIN_URL, {
-      url: tab.url,
-      title: tab.title,
-      favIconUrl: tab.favIconUrl,
+      url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl,
     })
     if (state) set(parseState(state))
   },
@@ -185,33 +210,16 @@ const useStore = create((set, get) => ({
   },
 
   reorderPins: async (ids) => {
-    set((state) => ({
-      pinnedUrls: ids
-        .map((id, index) => {
-          const pin = state.pinnedUrls.find((p) => p.id === id)
-          return pin ? { ...pin, order: index } : null
-        })
-        .filter((p) => p !== null),
+    set((s) => ({
+      pinnedUrls: ids.map((id, index) => {
+        const pin = s.pinnedUrls.find((p) => p.id === id)
+        return pin ? { ...pin, order: index } : null
+      }).filter(Boolean),
     }))
     await sendMessage(Messages.REORDER_PINS, { ids })
   },
 
-  reorderTabs: async (tabIds) => {
-    // Optimistically update openedAt so sort order matches the drag result
-    const now = Date.now()
-    set((state) => ({
-      tabs: state.tabs.map((tab) => {
-        const idx = tabIds.indexOf(tab.id)
-        if (idx === -1) return tab
-        // Higher openedAt = appears first (sort is descending)
-        return { ...tab, openedAt: now - idx }
-      }),
-    }))
-    await sendMessage(Messages.REORDER_TABS, { tabIds })
-  },
-
-  // ─── Folder Actions ─────────────────────────────────────
-
+  // ── Folders ───────────────────────────────────────────────────────────────
   createFolder: async (spaceId, name, tabIds) => {
     const state = await sendMessage(Messages.CREATE_FOLDER, { spaceId, name, tabIds })
     if (state) set(parseState(state))
@@ -228,9 +236,8 @@ const useStore = create((set, get) => ({
   },
 
   toggleFolder: async (folderId) => {
-    // Optimistic toggle
-    set((state) => ({
-      folders: state.folders.map((f) =>
+    set((s) => ({
+      folders: s.folders.map((f) =>
         f.id === folderId ? { ...f, collapsed: !f.collapsed } : f
       ),
     }))
@@ -249,6 +256,57 @@ const useStore = create((set, get) => ({
 
   reorderFolders: async (spaceId, folderOrders) => {
     await sendMessage(Messages.REORDER_FOLDERS, { spaceId, folderOrders })
+  },
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+  setSidebarCollapsed: async (collapsed) => {
+    set({ sidebarCollapsed: collapsed })
+    await sendMessage(Messages.SET_SIDEBAR_COLLAPSED, { collapsed })
+  },
+
+  // ── Dark Mode ─────────────────────────────────────────────────────────────
+  setDarkMode: async (darkMode) => {
+    set({ darkMode })
+    // Apply to DOM immediately
+    if (darkMode === 'auto') {
+      document.documentElement.removeAttribute('data-theme')
+    } else {
+      document.documentElement.setAttribute('data-theme', darkMode)
+    }
+    await sendMessage(Messages.SET_DARK_MODE, { darkMode })
+  },
+
+  // ── Recently Closed ───────────────────────────────────────────────────────
+  restoreClosedTab: async (entryId) => {
+    const state = await sendMessage(Messages.RESTORE_CLOSED_TAB, { entryId })
+    if (state) set(parseState(state))
+  },
+
+  clearClosedTabs: async () => {
+    const state = await sendMessage(Messages.CLEAR_CLOSED_TABS)
+    if (state) set(parseState(state))
+  },
+
+  // ── Sessions ──────────────────────────────────────────────────────────────
+  saveSession: async (name) => {
+    const sessions = await sendMessage(Messages.SAVE_SESSION, { name })
+    if (sessions) set({ sessions })
+    return sessions
+  },
+
+  restoreSession: async (sessionId) => {
+    await sendMessage(Messages.RESTORE_SESSION, { sessionId })
+  },
+
+  deleteSession: async (sessionId) => {
+    const sessions = await sendMessage(Messages.DELETE_SESSION, { sessionId })
+    if (sessions) set({ sessions })
+  },
+
+  reloadSessions: async () => {
+    const sessions = await sendMessage(Messages.GET_SESSIONS)
+    if (sessions) set({ sessions })
+    return sessions
   },
 }))
 

@@ -1,419 +1,143 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Arc UX — Settings</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arc UX — Options</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0F0F11;
-      --bg-card: #18181C;
-      --bg-hover: rgba(255,255,255,0.05);
-      --border: rgba(255,255,255,0.08);
       --accent: #8B7CF6;
-      --text: rgba(255,255,255,0.88);
-      --text-sub: rgba(255,255,255,0.45);
-      --text-dim: rgba(255,255,255,0.22);
-      --danger: #f87171;
-      --green: #34d399;
-      --font: -apple-system, 'SF Pro Text', system-ui, sans-serif;
-      --radius: 10px;
+      --bg: #F4F2FC;
+      --card: #FFFFFF;
+      --text: #1A1825;
+      --sub: rgba(26,24,37,0.55);
+      --border: rgba(0,0,0,0.08);
+      --font: -apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
     }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      font-size: 14px;
-      -webkit-font-smoothing: antialiased;
-      min-height: 100vh;
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1A1825; --card: #252336; --text: rgba(255,255,255,0.92); --sub: rgba(255,255,255,0.5); --border: rgba(255,255,255,0.08); }
     }
-
-    .page {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 40px 24px 80px;
+    body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; padding: 40px 20px; }
+    .container { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+    h1 { font-size: 22px; font-weight: 600; color: var(--text); }
+    .card { background: var(--card); border-radius: 14px; padding: 20px; border: 1px solid var(--border); }
+    .card-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--sub); margin-bottom: 14px; }
+    .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .field:last-child { margin-bottom: 0; }
+    label { font-size: 13.5px; font-weight: 500; }
+    select, input[type="number"] {
+      height: 36px; border-radius: 8px; border: 1.5px solid var(--border);
+      background: var(--bg); color: var(--text); font-family: var(--font);
+      font-size: 13.5px; padding: 0 10px; outline: none;
+      transition: border-color .12s;
     }
-
-    /* Header */
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 40px;
+    select:focus, input[type="number"]:focus { border-color: var(--accent); }
+    .shortcuts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .shortcut-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .shortcut-row:last-child { border: none; }
+    .shortcut-name { font-size: 13px; }
+    .shortcut-key {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+      padding: 2px 8px; font-size: 12px; font-family: var(--font); color: var(--sub);
     }
-    .logo {
-      width: 42px; height: 42px;
-      background: var(--accent);
-      border-radius: 11px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 20px;
+    .save-btn {
+      height: 38px; padding: 0 24px; border-radius: 10px; border: none;
+      background: var(--accent); color: #fff; font-family: var(--font);
+      font-size: 14px; font-weight: 600; cursor: pointer; align-self: flex-start;
+      transition: filter .12s;
     }
-    .header-text h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-    .header-text p { font-size: 13px; color: var(--text-sub); margin-top: 2px; }
-
-    /* Section */
-    .section { margin-bottom: 32px; }
-    .section-title {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      margin-bottom: 10px;
-      padding-left: 2px;
-    }
-
-    /* Card */
-    .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-
-    /* Shortcut row */
-    .shortcut-row {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--border);
-      transition: background 120ms;
-    }
-    .shortcut-row:last-child { border-bottom: none; }
-    .shortcut-row:hover { background: var(--bg-hover); }
-
-    .shortcut-info { flex: 1; }
-    .shortcut-name { font-size: 13.5px; font-weight: 500; color: var(--text); }
-    .shortcut-desc { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
-
-    .kbd-group { display: flex; gap: 4px; align-items: center; }
-    .kbd {
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.12);
-      border-bottom-width: 2px;
-      border-radius: 5px;
-      padding: 3px 8px;
-      font-size: 11.5px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      color: var(--text);
-      white-space: nowrap;
-    }
-    .kbd-sep { color: var(--text-dim); font-size: 11px; }
-
-    .shortcut-status {
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 20px;
-      font-weight: 500;
-    }
-    .status-ok { background: rgba(52,211,153,0.12); color: var(--green); }
-    .status-conflict { background: rgba(248,113,113,0.12); color: var(--danger); }
-
-    .btn-edit {
-      padding: 5px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--text-sub);
-      font-size: 12px;
-      cursor: pointer;
-      transition: background 100ms, color 100ms;
-      white-space: nowrap;
-    }
-    .btn-edit:hover { background: var(--bg-hover); color: var(--text); }
-
-    /* Alert banner */
-    .alert {
-      display: flex;
-      gap: 12px;
-      padding: 14px 18px;
-      border-radius: var(--radius);
-      margin-bottom: 12px;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .alert-warn {
-      background: rgba(251,191,36,0.08);
-      border: 1px solid rgba(251,191,36,0.2);
-      color: rgba(251,191,36,0.9);
-    }
-    .alert-info {
-      background: rgba(139,124,246,0.08);
-      border: 1px solid rgba(139,124,246,0.2);
-      color: rgba(139,124,246,0.9);
-    }
-    .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
-
-    /* Steps list */
-    .steps { display: flex; flex-direction: column; gap: 10px; }
-    .step {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      padding: 12px 16px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
-    .step-num {
-      width: 22px; height: 22px;
-      border-radius: 50%;
-      background: var(--accent);
-      color: white;
-      font-size: 11px;
-      font-weight: 700;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-    .step-text { font-size: 13px; line-height: 1.5; color: var(--text-sub); }
-    .step-text strong { color: var(--text); }
-    .step-text code {
-      background: rgba(255,255,255,0.07);
-      padding: 1px 6px;
-      border-radius: 4px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 12px;
-    }
-
-    /* Toggle row */
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--border);
-    }
-    .toggle-row:last-child { border-bottom: none; }
-    .toggle-label { font-size: 13.5px; font-weight: 500; }
-    .toggle-sub { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
-    .toggle {
-      width: 40px; height: 22px;
-      border-radius: 11px;
-      background: rgba(255,255,255,0.1);
-      position: relative;
-      cursor: pointer;
-      border: none;
-      transition: background 200ms;
-      flex-shrink: 0;
-    }
-    .toggle.on { background: var(--accent); }
-    .toggle::after {
-      content: '';
-      position: absolute;
-      top: 3px; left: 3px;
-      width: 16px; height: 16px;
-      border-radius: 50%;
-      background: white;
-      transition: transform 200ms;
-    }
-    .toggle.on::after { transform: translateX(18px); }
-
-    /* External link */
-    .ext-link {
-      color: var(--accent);
-      text-decoration: none;
-      font-size: 12.5px;
-    }
-    .ext-link:hover { text-decoration: underline; }
-
-    /* Footer */
-    .footer-note {
-      margin-top: 40px;
-      padding-top: 24px;
-      border-top: 1px solid var(--border);
-      font-size: 12px;
-      color: var(--text-dim);
-      text-align: center;
-    }
+    .save-btn:hover { filter: brightness(1.08); }
+    .save-ok { font-size: 13px; color: #34D399; display: none; }
+    .desc { font-size: 12px; color: var(--sub); }
   </style>
 </head>
 <body>
-<div class="page">
+  <div class="container">
+    <h1>⚡ Arc UX Settings</h1>
 
-  <div class="header">
-    <div class="logo">⌘</div>
-    <div class="header-text">
-      <h1>Arc UX for Chrome</h1>
-      <p>Settings &amp; Shortcuts</p>
-    </div>
-  </div>
-
-  <!-- Shortcuts -->
-  <div class="section">
-    <div class="section-title">Keyboard Shortcuts</div>
-
-    <div class="alert alert-warn">
-      <span class="alert-icon">⚠️</span>
-      <div>
-        Chrome/Brave may override some shortcuts. If a shortcut doesn't work, use the
-        <strong>Override</strong> button below or go to
-        <a class="ext-link" href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>
-        to remap them.
-      </div>
-    </div>
-
+    <!-- Search Engine -->
     <div class="card">
-      <div class="shortcut-row">
-        <div class="shortcut-info">
-          <div class="shortcut-name">Open Command Bar</div>
-          <div class="shortcut-desc">Search tabs, history, or navigate to a URL</div>
-        </div>
-        <div class="kbd-group">
-          <span class="kbd">Ctrl</span>
-          <span class="kbd-sep">+</span>
-          <span class="kbd">Space</span>
-        </div>
-        <span class="shortcut-status status-ok" id="status-cmdbar">Active</span>
-        <button class="btn-edit" onclick="openShortcutsPage()">Override</button>
-      </div>
-
-      <div class="shortcut-row">
-        <div class="shortcut-info">
-          <div class="shortcut-name">Duplicate Tab</div>
-          <div class="shortcut-desc">Duplicate the current active tab</div>
-        </div>
-        <div class="kbd-group">
-          <span class="kbd">Ctrl</span>
-          <span class="kbd-sep">+</span>
-          <span class="kbd">Shift</span>
-          <span class="kbd-sep">+</span>
-          <span class="kbd">D</span>
-        </div>
-        <span class="shortcut-status status-ok" id="status-dup">Active</span>
-        <button class="btn-edit" onclick="openShortcutsPage()">Override</button>
-      </div>
-
-      <div class="shortcut-row">
-        <div class="shortcut-info">
-          <div class="shortcut-name">Minimize / Restore Sidebar</div>
-          <div class="shortcut-desc">Collapse the Arc sidebar to an icon rail</div>
-        </div>
-        <div class="kbd-group">
-          <span class="kbd">Alt</span>
-          <span class="kbd-sep">+</span>
-          <span class="kbd">S</span>
-        </div>
-        <span class="shortcut-status status-ok" id="status-sidebar">Active</span>
-        <button class="btn-edit" onclick="openShortcutsPage()">Override</button>
+      <div class="card-title">Search Engine</div>
+      <div class="field">
+        <label for="search-engine">Default search engine</label>
+        <select id="search-engine">
+          <option value="brave">Brave Search (recommended for Brave)</option>
+          <option value="google">Google</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+          <option value="bing">Bing</option>
+        </select>
+        <span class="desc">Used when typing a search query in the command bar or new tab page.</span>
       </div>
     </div>
 
-    <p style="margin-top: 10px; font-size: 12px; color: var(--text-dim);">
-      To permanently remap shortcuts, visit
-      <a class="ext-link" href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>
-    </p>
-  </div>
-
-  <!-- Brave tab bar hide guide -->
-  <div class="section">
-    <div class="section-title">Brave Setup — Hide Native Tab Bar</div>
-    <div class="alert alert-info" style="margin-bottom: 14px;">
-      <span class="alert-icon">💡</span>
-      <div>For the full Arc experience, hide Brave's native horizontal tab bar. This requires two steps.</div>
-    </div>
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-text">Right-click any tab → <strong>Use Vertical Tabs</strong><br>
-          Or enable via <code>brave://flags/#brave-vertical-tabs</code> → set to <strong>Enabled</strong> → relaunch</div>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-text">Once vertical tabs panel appears, <strong>right-click the vertical sidebar</strong> → <strong>Hide tab bar</strong><br>
-          The horizontal bar disappears. Our extension's side panel takes its place.</div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-text">Go to <code>brave://settings/appearance</code> → turn off <strong>"Show bookmarks bar"</strong> for maximum clean space.</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Behavior settings -->
-  <div class="section">
-    <div class="section-title">Behavior</div>
+    <!-- Dark Mode -->
     <div class="card">
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">Open sidebar on browser start</div>
-          <div class="toggle-sub">Automatically open the Arc side panel when Brave launches</div>
-        </div>
-        <button class="toggle" id="toggle-autoopen" onclick="toggleSetting('autoOpen', this)"></button>
-      </div>
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">Show muted tab indicator</div>
-          <div class="toggle-sub">Display a mute icon on tabs with audio muted</div>
-        </div>
-        <button class="toggle on" id="toggle-muteicon" onclick="toggleSetting('showMuteIcon', this)"></button>
-      </div>
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">Group new tabs by space automatically</div>
-          <div class="toggle-sub">New tabs opened inherit the currently active space</div>
-        </div>
-        <button class="toggle on" id="toggle-autospace" onclick="toggleSetting('autoSpace', this)"></button>
+      <div class="card-title">Appearance</div>
+      <div class="field">
+        <label for="dark-mode">Theme</label>
+        <select id="dark-mode">
+          <option value="auto">Auto (follow OS)</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
       </div>
     </div>
-  </div>
 
-  <!-- Shortcut cheatsheet -->
-  <div class="section">
-    <div class="section-title">Shortcut Cheatsheet</div>
+    <!-- Tab Suspension -->
     <div class="card">
-      <div class="shortcut-row">
-        <div class="shortcut-info"><div class="shortcut-name">Command Bar</div></div>
-        <div class="kbd-group"><span class="kbd">Ctrl</span><span class="kbd-sep">+</span><span class="kbd">Space</span></div>
+      <div class="card-title">Memory</div>
+      <div class="field">
+        <label for="suspend-minutes">Auto-suspend inactive tabs after (minutes, 0 = off)</label>
+        <input type="number" id="suspend-minutes" min="0" max="240" value="0" style="width: 100px" />
+        <span class="desc">Brave has its own Memory Saver — manual suspend via right-click is always available regardless of this setting.</span>
       </div>
-      <div class="shortcut-row">
-        <div class="shortcut-info"><div class="shortcut-name">Duplicate Tab</div></div>
-        <div class="kbd-group"><span class="kbd">Ctrl</span><span class="kbd-sep">+</span><span class="kbd">Shift</span><span class="kbd-sep">+</span><span class="kbd">D</span></div>
-      </div>
-      <div class="shortcut-row">
-        <div class="shortcut-info"><div class="shortcut-name">Minimize Sidebar</div></div>
-        <div class="kbd-group"><span class="kbd">Alt</span><span class="kbd-sep">+</span><span class="kbd">S</span></div>
-      </div>
-      <div class="shortcut-row">
-        <div class="shortcut-info"><div class="shortcut-name">Add to Favorites</div><div class="shortcut-desc">Right-click any tab in the sidebar</div></div>
-        <div class="kbd-group"><span class="kbd">Right-click</span></div>
-      </div>
-      <div class="shortcut-row">
-        <div class="shortcut-info"><div class="shortcut-name">Move Favorite</div><div class="shortcut-desc">Drag and drop in the favorites bar</div></div>
-        <div class="kbd-group"><span class="kbd">Drag</span></div>
-      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="save-btn" id="save-btn">Save Settings</button>
+      <span class="save-ok" id="save-ok">✓ Saved</span>
+    </div>
+
+    <!-- Keyboard shortcuts -->
+    <div class="card">
+      <div class="card-title">Keyboard Shortcuts</div>
+      <div class="shortcut-row"><span class="shortcut-name">New tab modal</span><span class="shortcut-key">Ctrl+T</span></div>
+      <div class="shortcut-row"><span class="shortcut-name">Command bar</span><span class="shortcut-key">Ctrl+Space</span></div>
+      <div class="shortcut-row"><span class="shortcut-name">Tab switcher</span><span class="shortcut-key">Ctrl+Tab</span></div>
+      <div class="shortcut-row"><span class="shortcut-name">Toggle sidebar</span><span class="shortcut-key">Alt+S</span></div>
+      <div class="shortcut-row"><span class="shortcut-name">Duplicate tab</span><span class="shortcut-key">Ctrl+Shift+D</span></div>
+      <div class="shortcut-row"><span class="shortcut-name">Switch to space N</span><span class="shortcut-key">Ctrl+1 – Ctrl+9</span></div>
+      <div class="shortcut-row"><span class="shortcut-name">Filter tabs</span><span class="shortcut-key">Ctrl+F</span></div>
     </div>
   </div>
 
-  <div class="footer-note">
-    Arc UX for Chrome v1.3.0 — Built with React + Vite + MV3
-  </div>
-</div>
+  <script>
+    const STORAGE_KEY = 'arcSettings'
 
-<script>
-  // Load settings
-  chrome.storage.local.get('arcSettings', (data) => {
-    const s = data.arcSettings || {};
-    if (s.autoOpen) document.getElementById('toggle-autoopen').classList.add('on');
-    if (s.showMuteIcon === false) document.getElementById('toggle-muteicon').classList.remove('on');
-    if (s.autoSpace === false) document.getElementById('toggle-autospace').classList.remove('on');
-  });
+    async function load() {
+      const result = await chrome.storage.local.get(STORAGE_KEY)
+      const s = result[STORAGE_KEY] || {}
+      document.getElementById('search-engine').value    = s.searchEngine    || 'brave'
+      document.getElementById('dark-mode').value        = s.darkMode        || 'auto'
+      document.getElementById('suspend-minutes').value  = s.suspendAfterMinutes ?? 0
+    }
 
-  function toggleSetting(key, btn) {
-    btn.classList.toggle('on');
-    chrome.storage.local.get('arcSettings', (data) => {
-      const s = data.arcSettings || {};
-      s[key] = btn.classList.contains('on');
-      chrome.storage.local.set({ arcSettings: s });
-    });
-  }
+    document.getElementById('save-btn').addEventListener('click', async () => {
+      const settings = {
+        searchEngine:        document.getElementById('search-engine').value,
+        darkMode:            document.getElementById('dark-mode').value,
+        suspendAfterMinutes: parseInt(document.getElementById('suspend-minutes').value, 10) || 0,
+      }
+      await chrome.storage.local.set({ [STORAGE_KEY]: settings })
+      // Notify background
+      chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings }).catch(() => {})
+      const ok = document.getElementById('save-ok')
+      ok.style.display = 'inline'
+      setTimeout(() => { ok.style.display = 'none' }, 2000)
+    })
 
-  function openShortcutsPage() {
-    chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
-  }
-</script>
+    load()
+  </script>
 </body>
 </html>

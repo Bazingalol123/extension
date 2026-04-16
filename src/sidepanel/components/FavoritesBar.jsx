@@ -1,171 +1,77 @@
-import React, { useState, useEffect } from 'react'
-import ReactDOM from 'react-dom'
+import React, { useState } from 'react'
+import { useSortable, SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
-import {
-  SortableContext,
-  horizontalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import useStore from '../store'
+import { getFaviconSrc, getFaviconFallback } from '@shared/utils.js'
 
 /**
- * Single favorite tile (non-sortable presentation).
- * Exported so App.jsx can render it inside the unified DragOverlay.
+ * Individual favorite tile.
  */
 export function FavTile({ fav, isDragging, accentColor }) {
-  const { activateFavoriteUrl, removeFavorite } = useStore()
-
+  const { removeFavorite, activateFavoriteUrl } = useStore()
   const [imgError, setImgError] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const [ctxMenu, setCtxMenu] = useState(null)
+  const [hover, setHover]       = useState(false)
+  const [ctxMenu, setCtxMenu]   = useState(null)
+  const ctxRef = React.useRef(null)
 
-  const initial = (fav.title || fav.url || '?')[0].toUpperCase()
-  const favIcon = fav.favIconUrl && !imgError ? fav.favIconUrl : null
+  const favicon  = getFaviconSrc(fav.favIconUrl)
+  const fallback = getFaviconFallback(fav.title, fav.url)
 
-  let hostname = fav.url
-  try {
-    hostname = new URL(fav.url).hostname.replace('www.', '')
-  } catch {}
-
-  const handleClick = (e) => {
-    if (e.target.closest('.fav-ctx-menu')) return
-    activateFavoriteUrl(fav.url)
-  }
-
-  const handleContextMenu = (e) => {
-    e.preventDefault()
-    const rect = e.currentTarget.getBoundingClientRect()
-    setCtxMenu({ x: rect.right, y: rect.top })
-  }
-
-  // Close context menu on outside click
-  useEffect(() => {
+  React.useEffect(() => {
     if (!ctxMenu) return
-    const handleClickOutside = (e) => {
-      if (!e.target.closest('.fav-ctx-menu')) setCtxMenu(null)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    const h = (e) => { if (ctxRef.current && !ctxRef.current.contains(e.target)) setCtxMenu(null) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
   }, [ctxMenu])
 
   return (
-    <div
-      className={`fav-tile${isDragging ? ' dragging' : ''}`}
-      style={{ '--space-color': accentColor }}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => {
-        setHovered(false)
-      }}
-    >
-      {favIcon ? (
-        <img
-          src={favIcon}
-          className="fav-img"
-          alt=""
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        <span className="fav-initial">{initial}</span>
-      )}
-
-      {hovered && !ctxMenu && (
-        <div className="fav-tooltip">{fav.title || hostname}</div>
-      )}
-
-      {ctxMenu && ReactDOM.createPortal(
-        <div
-          className="fav-ctx-menu"
-          style={{ position: 'fixed', top: ctxMenu.y, left: ctxMenu.x }}
-        >
-          <div
-            className="ctx-item"
-            onClick={() => {
-              activateFavoriteUrl(fav.url)
-              setCtxMenu(null)
-            }}
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-            </svg>
+    <>
+      <div
+        className="fav-tile"
+        style={{ opacity: isDragging ? 0.5 : 1 }}
+        onClick={() => activateFavoriteUrl(fav.url)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setCtxMenu({ x: Math.min(e.clientX, window.innerWidth - 170), y: e.clientY })
+        }}
+        title={fav.title}
+      >
+        {favicon && !imgError ? (
+          <img className="fav-img" src={favicon} onError={() => setImgError(true)} alt="" />
+        ) : (
+          <span className="fav-initial" style={{ background: fallback.color }}>
+            {fallback.letter}
+          </span>
+        )}
+        {hover && !isDragging && (
+          <span className="fav-tooltip">{fav.title || fav.url}</span>
+        )}
+      </div>
+      {ctxMenu && (
+        <div ref={ctxRef} className="fav-ctx-menu" style={{ top: ctxMenu.y, left: ctxMenu.x }}>
+          <div className="ctx-item" onClick={() => { activateFavoriteUrl(fav.url); setCtxMenu(null) }}>
             Open
           </div>
-          <div
-            className="ctx-item"
-            onClick={() => {
-              chrome.tabs.create({ url: fav.url })
-              setCtxMenu(null)
-            }}
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-            Open in New Tab
-          </div>
           <div className="ctx-separator" />
-          <div
-            className="ctx-item danger"
-            onClick={() => {
-              removeFavorite(fav.id)
-              setCtxMenu(null)
-            }}
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-            </svg>
-            Remove Favorite
+          <div className="ctx-item danger" onClick={() => { removeFavorite(fav.id); setCtxMenu(null) }}>
+            Remove from Favorites
           </div>
-        </div>,
-        document.body
+        </div>
       )}
-    </div>
+    </>
   )
 }
 
-/**
- * Sortable wrapper for a single favorite tile.
- */
 function SortableFavTile({ id, ...props }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id })
-
   return (
     <div
       ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0 : 1,
-      }}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0 : 1 }}
       {...attributes}
       {...listeners}
     >
@@ -175,26 +81,23 @@ function SortableFavTile({ id, ...props }) {
 }
 
 /**
- * Horizontal favorites bar with drag-to-reorder support.
- * Uses SortableContext inside the parent DndContext (lifted to App.jsx).
- * Also acts as a droppable zone so tabs can be dropped here to add as favorites.
+ * Favorites bar — always renders a droppable zone (even when empty) so that
+ * the first favorite can be added by dragging a tab here.
+ * Bug fix: previously returned null when empty, hiding the drop zone.
  */
 export default function FavoritesBar({ favorites, accentColor }) {
   const sorted = [...favorites].sort((a, b) => a.order - b.order)
-
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: 'favorites-droppable' })
-
-  if (favorites.length === 0) return null
 
   return (
     <div
       ref={setDropRef}
       className={`favorites-bar${isOver ? ' drop-target' : ''}`}
     >
-      <SortableContext
-        items={sorted.map((f) => f.id)}
-        strategy={horizontalListSortingStrategy}
-      >
+      {sorted.length > 0 && (
+        <div className="fav-section-label">Favorites</div>
+      )}
+      <SortableContext items={sorted.map((f) => f.id)} strategy={horizontalListSortingStrategy}>
         <div className="fav-grid">
           {sorted.map((fav) => (
             <SortableFavTile
@@ -204,6 +107,11 @@ export default function FavoritesBar({ favorites, accentColor }) {
               accentColor={accentColor}
             />
           ))}
+          {sorted.length === 0 && isOver && (
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', padding: '4px 2px' }}>
+              Drop here to add favorite
+            </div>
+          )}
         </div>
       </SortableContext>
     </div>

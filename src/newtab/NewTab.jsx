@@ -1,387 +1,246 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Fuse from 'fuse.js'
 
-/* ── Helper functions ── */
-
-function getDomain(url) {
-  try {
-    return new URL(url).hostname.replace('www.', '')
-  } catch {
-    return url
-  }
-}
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function isUrl(str) {
-  return /^https?:\/\//i.test(str) || /^[a-z0-9-]+\.[a-z]{2,}/i.test(str)
+  if (!str) return false
+  const s = str.trim()
+  if (/^https?:\/\//i.test(s)) return true
+  if (/^localhost(:\d+)?/i.test(s)) return true
+  if (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?/.test(s)) return true
+  if (/^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(s)) return true
+  return false
 }
 
-function getFaviconUrl(url) {
-  try {
-    return `${new URL(url).origin}/favicon.ico`
-  } catch {
-    return ''
-  }
+function getDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' }
 }
 
-/* ── Favicon component ── */
+function getFaviconSrc(favIconUrl) {
+  if (!favIconUrl) return null
+  if (favIconUrl === 'data:') return null
+  if (favIconUrl.startsWith('chrome://') || favIconUrl.startsWith('chrome-extension://') || favIconUrl.startsWith('brave://')) return null
+  return favIconUrl
+}
 
-const Favicon = ({ src, title, size = 20 }) => {
-  const [errored, setErrored] = useState(false)
+function getFallback(title, url) {
+  const PALETTE = ['#8B7CF6','#F87171','#34D399','#FBBF24','#60A5FA','#F472B6','#FB923C','#A78BFA']
+  const source  = getDomain(url) || title || '?'
+  const letter  = source[0].toUpperCase()
+  const color   = PALETTE[(source || '?').charCodeAt(0) % PALETTE.length]
+  return { letter, color }
+}
 
-  if (!src || errored) {
-    return (
-      <div
-        style={{
-          width: size,
-          height: size,
-          borderRadius: 5,
-          background: 'rgba(124,106,247,0.12)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: size * 0.45,
-          fontWeight: 700,
-          color: '#7C6AF7',
-          flexShrink: 0,
-        }}
-      >
-        {(title || '?')[0].toUpperCase()}
-      </div>
-    )
+/**
+ * Get the search engine URL from settings (Brave / Google / DuckDuckGo / Bing).
+ * Defaults to Brave Search.
+ */
+async function getSearchUrl(query) {
+  const stored = await chrome.storage.local.get('arcSettings')
+  const engine = stored.arcSettings?.searchEngine || 'brave'
+  const engines = {
+    brave:      `https://search.brave.com/search?q=${encodeURIComponent(query)}`,
+    google:     `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+    duckduckgo: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+    bing:       `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
   }
+  return engines[engine] || engines.brave
+}
 
+// ── Favicon component ─────────────────────────────────────────────────────────
+
+function FavIcon({ src, title, url, size = 18 }) {
+  const [err, setErr] = useState(false)
+  const fb = getFallback(title, url)
+  const s = getFaviconSrc(src)
+  if (s && !err) {
+    return <img src={s} width={size} height={size} style={{ borderRadius: 4, objectFit: 'contain', flexShrink: 0 }} onError={() => setErr(true)} alt="" />
+  }
   return (
-    <img
-      src={src}
-      width={size}
-      height={size}
-      style={{ borderRadius: 4, objectFit: 'contain', flexShrink: 0 }}
-      onError={() => setErrored(true)}
-    />
+    <span style={{
+      width: size, height: size, borderRadius: 4, background: fb.color,
+      color: '#fff', fontSize: size * 0.5, fontWeight: 700,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0, textTransform: 'uppercase',
+    }}>
+      {fb.letter}
+    </span>
   )
 }
 
-/* ── Search icon (magnifying glass) ── */
-const SearchIcon = ({ stroke = '#7C6AF7', size = 18, style }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={stroke}
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    style={style}
-  >
-    <circle cx="11" cy="11" r="8" />
-    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-  </svg>
-)
+// ── Main Component ────────────────────────────────────────────────────────────
 
-/* ── Kind icon for action results ── */
-const KindIcon = (kind) => {
-  if (kind === 'search') {
-    return (
-      <div
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: 5,
-          background: 'rgba(124,106,247,0.1)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <SearchIcon stroke="#7C6AF7" size={11} />
-      </div>
-    )
-  }
-
-  if (kind === 'url') {
-    return (
-      <div
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: 5,
-          background: 'rgba(52,211,153,0.1)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <svg
-          width="11"
-          height="11"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#34D399"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        >
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-          <polyline points="15 3 21 3 21 9" />
-          <line x1="10" y1="14" x2="21" y2="3" />
-        </svg>
-      </div>
-    )
-  }
-
-  return null
-}
-
-/* ── Main NewTab component ── */
-
-const NewTab = () => {
-  const [query, setQuery] = useState('')
-  const [tabs, setTabs] = useState([])
-  const [historyResults, setHistoryResults] = useState([])
-  const [activeIdx, setActiveIdx] = useState(0)
-  const [accentColor, setAccentColor] = useState('#7C6AF7')
-  const [greeting, setGreeting] = useState('')
-
+export default function NewTab() {
+  const [query, setQuery]               = useState('')
+  const [tabs, setTabs]                 = useState([])
+  const [historyItems, setHistoryItems] = useState([])
+  const [accentColor, setAccentColor]   = useState('#8B7CF6')
+  const [prevTab, setPrevTab]           = useState(null)  // previously active tab
+  const [activeIdx, setActiveIdx]       = useState(0)
+  const [greeting, setGreeting]         = useState('Good morning')
   const inputRef = useRef(null)
-  const listRef = useRef(null)
+  const listRef  = useRef(null)
 
-  /* Greeting based on time of day */
+  // ── Setup ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const hour = new Date().getHours()
-    setGreeting(
-      hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-    )
-  }, [])
+    const h = new Date().getHours()
+    setGreeting(h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening')
 
-  /* Load accent color from active space */
-  useEffect(() => {
     chrome.storage.local.get('arcState', (data) => {
       const state = data.arcState
       if (state?.spaces && state.activeSpaceId) {
         const space = state.spaces.find((s) => s.id === state.activeSpaceId)
-        if (space?.color) {
-          setAccentColor(space.color)
-        }
+        if (space?.color) setAccentColor(space.color)
       }
     })
-  }, [])
 
-  /* Load open tabs on mount */
-  useEffect(() => {
+    // Load tabs + find previously active tab
     chrome.tabs.query({}).then((allTabs) => {
-      setTabs(
-        allTabs
-          .filter(
-            (t) =>
-              t.id &&
-              t.url &&
-              !t.url.startsWith('chrome-extension://') &&
-              !t.url.startsWith('chrome://newtab')
-          )
-          .map((t) => ({
-            id: t.id,
-            title: t.title || getDomain(t.url || ''),
-            url: t.url || '',
-            favIconUrl: t.favIconUrl || getFaviconUrl(t.url || ''),
-          }))
+      const current = allTabs.find((t) => t.active)
+      const userTabs = allTabs.filter(
+        (t) => t.id && t.url &&
+          !t.url.startsWith('chrome-extension://') &&
+          !t.url.startsWith('chrome://newtab') &&
+          !t.url.startsWith('brave://newtab') &&
+          !t.active
       )
+
+      setTabs(
+        userTabs.map((t) => ({
+          id: t.id,
+          title: t.title || getDomain(t.url || ''),
+          url: t.url || '',
+          favIconUrl: t.favIconUrl || '',
+          lastAccessed: t.lastAccessed || 0,
+        }))
+      )
+
+      // The most recently accessed non-new-tab = previous tab
+      const sorted = [...userTabs].sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))
+      if (sorted[0]) setPrevTab(sorted[0])
     })
 
     inputRef.current?.focus()
   }, [])
 
-  /* Debounced history search */
+  // ── Debounced history search ──────────────────────────────────────────────
   useEffect(() => {
-    if (!query || query.length < 2) {
-      setHistoryResults([])
-      return
-    }
-
-    const timer = setTimeout(() => {
-      chrome.history
-        .search({ text: query, maxResults: 6, startTime: 0 })
-        .then((results) => {
-          const tabUrls = new Set(tabs.map((t) => t.url))
-          setHistoryResults(
-            results
-              .filter(
-                (r) =>
-                  r.url && !tabUrls.has(r.url) && !r.url.startsWith('chrome://')
-              )
-              .slice(0, 5)
-              .map((r) => ({
-                title: r.title || getDomain(r.url),
-                url: r.url,
-              }))
-          )
-        })
-        .catch(() => {})
+    if (!query || query.length < 2) { setHistoryItems([]); return }
+    const t = setTimeout(async () => {
+      try {
+        const results = await chrome.history.search({ text: query, maxResults: 6, startTime: 0 })
+        const tabUrls = new Set(tabs.map((t) => t.url))
+        setHistoryItems(
+          results
+            .filter((r) => r.url && !tabUrls.has(r.url) && !r.url.startsWith('chrome://') && !r.url.startsWith('brave://'))
+            .slice(0, 5)
+            .map((r) => ({ kind: 'history', title: r.title || getDomain(r.url), url: r.url }))
+        )
+      } catch {}
     }, 120)
-
-    return () => clearTimeout(timer)
+    return () => clearTimeout(t)
   }, [query, tabs])
 
-  /* Fuse.js fuzzy search instance */
+  // ── Fuse search ───────────────────────────────────────────────────────────
   const fuse = useMemo(
     () => new Fuse(tabs, { keys: ['title', 'url'], threshold: 0.4 }),
     [tabs]
   )
 
-  /* Computed combined results list */
   const results = useMemo(() => {
     const items = []
 
     if (!query) {
-      // Show first 6 open tabs when no query
-      tabs.slice(0, 6).forEach((t) =>
-        items.push({
-          kind: 'tab',
-          title: t.title,
-          url: t.url,
-          favIconUrl: t.favIconUrl,
-          tabId: t.id,
-        })
+      // No query: show previous tab as "Switch to Tab" if available, then recent tabs
+      if (prevTab) {
+        items.push({ kind: 'switch', id: prevTab.id, title: prevTab.title, url: prevTab.url, favIconUrl: prevTab.favIconUrl })
+      }
+      tabs.slice(0, 5).forEach((t) =>
+        t !== prevTab && items.push({ kind: 'tab', ...t })
       )
       return items
     }
 
-    // Fuzzy-matched tabs
-    fuse
-      .search(query)
-      .slice(0, 5)
-      .forEach((r) =>
-        items.push({
-          kind: 'tab',
-          title: r.item.title,
-          url: r.item.url,
-          favIconUrl: r.item.favIconUrl,
-          tabId: r.item.id,
-        })
-      )
-
-    // History results
-    historyResults.forEach((r) =>
-      items.push({ kind: 'history', title: r.title, url: r.url })
-    )
-
-    // URL navigation action
-    if (isUrl(query)) {
-      const url = /^https?:\/\//i.test(query) ? query : `https://${query}`
-      items.push({ kind: 'url', title: `Open ${query}`, url })
-    }
-
-    // Google search action
-    items.push({
-      kind: 'search',
-      title: `Search for "${query}"`,
-      url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+    // Query: fuzzy-matched tabs — if first result URL matches an existing tab show "Switch"
+    const matched = fuse.search(query).slice(0, 6).map((r) => r.item)
+    matched.forEach((t, i) => {
+      items.push({ kind: i === 0 && matched.length > 0 ? 'switch' : 'tab', ...t })
     })
 
+    // History results
+    historyItems.forEach((r) => items.push(r))
+
+    // URL / Search action
+    if (isUrl(query)) {
+      const url = /^https?:\/\//i.test(query) ? query : `https://${query}`
+      items.push({ kind: 'action', icon: 'url', label: `Open ${query}`, subtitle: 'Navigate to URL', url })
+    }
+    items.push({ kind: 'action', icon: 'search', label: `Search "${query}"`, subtitle: 'Search the web', query })
+
     return items
-  }, [query, tabs, historyResults, fuse])
+  }, [query, fuse, tabs, historyItems, prevTab])
 
-  /* Reset active index on query change */
+  useEffect(() => setActiveIdx(0), [query])
+
+  // ── Scroll active item into view ──────────────────────────────────────────
   useEffect(() => {
-    setActiveIdx(0)
-  }, [query])
+    listRef.current?.children[activeIdx]?.scrollIntoView({ block: 'nearest' })
+  }, [activeIdx])
 
-  /* Select / activate a result */
-  const selectResult = useCallback((item) => {
-    if (item.kind === 'tab' && item.tabId) {
-      chrome.tabs.update(item.tabId, { active: true })
-      window.close()
-    } else {
-      window.location.href = item.url
+  // ── Select a result ───────────────────────────────────────────────────────
+  const selectResult = useCallback(async (item) => {
+    if (item.kind === 'switch' || item.kind === 'tab') {
+      chrome.tabs.update(item.id, { active: true })
+    } else if (item.kind === 'history') {
+      chrome.tabs.create({ url: item.url })
+    } else if (item.kind === 'action') {
+      if (item.url) {
+        chrome.tabs.create({ url: item.url })
+      } else if (item.query) {
+        const searchUrl = await getSearchUrl(item.query)
+        chrome.tabs.create({ url: searchUrl })
+      }
     }
   }, [])
 
-  /* Keyboard navigation */
-  const handleKeyDown = useCallback(
-    (e) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setActiveIdx((i) => Math.min(i + 1, results.length - 1))
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setActiveIdx((i) => Math.max(i - 1, 0))
-      }
-      if (e.key === 'Enter' && results[activeIdx]) {
-        e.preventDefault()
-        selectResult(results[activeIdx])
-      }
-      if (e.key === 'Escape') {
-        setQuery('')
-        inputRef.current?.focus()
-      }
-    },
-    [results, activeIdx, selectResult]
-  )
+  const handleKeyDown = useCallback(async (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, results.length - 1)); return }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); return }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (results[activeIdx]) await selectResult(results[activeIdx])
+    }
+  }, [results, activeIdx, selectResult])
 
-  /* Scroll active item into view */
-  useEffect(() => {
-    const el = listRef.current?.querySelector(`[data-idx="${activeIdx}"]`)
-    el?.scrollIntoView({ block: 'nearest' })
-  }, [activeIdx])
-
-  /* ── Render ── */
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background:
-          'linear-gradient(135deg, #EEEAF8 0%, #E4DEFF 50%, #EAE6FF 100%)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: '-apple-system, "SF Pro Text", system-ui, sans-serif',
-        WebkitFontSmoothing: 'antialiased',
-      }}
-    >
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #F0EBF8 0%, #E8E3F5 60%, #E0DBF0 100%)',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center',
+      paddingTop: 80,
+      fontFamily: '-apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif',
+    }}>
       {/* Greeting */}
-      <div
-        style={{
-          fontSize: 28,
-          fontWeight: 700,
-          color: '#1A1825',
-          marginBottom: 32,
-          letterSpacing: -0.5,
-        }}
-      >
-        {greeting} 👋
+      <div style={{ fontSize: 22, fontWeight: 500, color: '#4A4566', marginBottom: 28 }}>
+        {greeting}
       </div>
 
       {/* Search card */}
-      <div
-        style={{
-          width: 540,
-          maxWidth: 'calc(100vw - 32px)',
-          background: 'white',
-          borderRadius: 16,
-          boxShadow:
-            '0 4px 24px rgba(124,106,247,0.15), 0 1px 4px rgba(0,0,0,0.08)',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Search input row */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            padding: '0 18px',
-            height: 56,
-            borderBottom:
-              results.length > 0
-                ? '1px solid rgba(0,0,0,0.06)'
-                : 'none',
-          }}
-        >
-          <SearchIcon stroke={accentColor} size={18} style={{ flexShrink: 0 }} />
-
+      <div style={{
+        width: '100%', maxWidth: 600,
+        background: '#fff',
+        borderRadius: 18,
+        boxShadow: '0 4px 32px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)',
+        overflow: 'hidden',
+      }}>
+        {/* Search input */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: results.length > 0 ? '1px solid rgba(0,0,0,0.06)' : 'none' }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
           <input
             ref={inputRef}
             value={query}
@@ -391,208 +250,125 @@ const NewTab = () => {
             autoComplete="off"
             spellCheck={false}
             style={{
-              flex: 1,
-              border: 'none',
-              outline: 'none',
-              fontSize: 16,
-              fontFamily: 'inherit',
-              color: '#1A1825',
-              background: 'transparent',
-              caretColor: accentColor,
+              flex: 1, border: 'none', outline: 'none',
+              fontSize: 16, fontFamily: 'inherit', color: '#1A1825',
+              background: 'transparent', caretColor: accentColor,
             }}
           />
-
           {query && (
-            <button
-              onClick={() => {
-                setQuery('')
-                inputRef.current?.focus()
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'rgba(0,0,0,0.3)',
-                fontSize: 18,
-                lineHeight: 1,
-                padding: 0,
-              }}
-            >
+            <button onClick={() => { setQuery(''); inputRef.current?.focus() }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(0,0,0,0.3)', fontSize: 18, lineHeight: 1, padding: 0 }}>
               ×
             </button>
           )}
         </div>
 
-        {/* Results list */}
+        {/* Results */}
         {results.length > 0 && (
-          <>
-            <div ref={listRef} style={{ maxHeight: 340, overflowY: 'auto' }}>
-              {/* "Open Tabs" label when no query */}
-              {!query && (
-                <div
-                  style={{
-                    padding: '8px 18px 4px',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    color: 'rgba(0,0,0,0.3)',
-                  }}
-                >
-                  Open Tabs
-                </div>
-              )}
+          <div ref={listRef} style={{ maxHeight: 340, overflowY: 'auto' }}>
+            {!query && results.length > 0 && (
+              <div style={{ padding: '8px 18px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.3)' }}>
+                {prevTab ? 'Switch Back' : 'Open Tabs'}
+              </div>
+            )}
 
-              {results.map((item, idx) => (
-                <div
-                  key={`${item.kind}-${item.url}-${idx}`}
-                  data-idx={idx}
-                  onClick={() => selectResult(item)}
-                  onMouseEnter={() => setActiveIdx(idx)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '0 16px',
-                    height: 48,
-                    cursor: 'pointer',
-                    background:
-                      idx === activeIdx
-                        ? 'rgba(124,106,247,0.07)'
-                        : 'transparent',
-                    borderLeft:
-                      idx === activeIdx
-                        ? `3px solid ${accentColor}`
-                        : '3px solid transparent',
-                    transition: 'background 80ms',
-                  }}
-                >
-                  {/* Icon */}
-                  {item.kind === 'tab' || item.kind === 'history' ? (
-                    <Favicon
-                      src={item.favIconUrl || getFaviconUrl(item.url)}
-                      title={item.title}
-                      size={20}
-                    />
-                  ) : (
-                    KindIcon(item.kind)
-                  )}
-
-                  {/* Title & domain */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: '#1A1825',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {item.title}
-                    </div>
-                    {(item.kind === 'tab' || item.kind === 'history') && (
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: 'rgba(0,0,0,0.4)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {getDomain(item.url)}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* "Open" badge for tab results */}
-                  {item.kind === 'tab' && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        padding: '2px 7px',
-                        borderRadius: 20,
-                        background: 'rgba(124,106,247,0.1)',
-                        color: accentColor,
-                        fontWeight: 600,
-                        flexShrink: 0,
-                      }}
-                    >
-                      Open
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Keyboard hints footer */}
-            <div
-              style={{
-                display: 'flex',
-                gap: 16,
-                padding: '8px 18px',
-                borderTop: '1px solid rgba(0,0,0,0.05)',
-              }}
-            >
-              {[
-                ['↑↓', 'navigate'],
-                ['↵', 'open'],
-                ['Esc', 'clear'],
-              ].map(([key, label]) => (
-                <span
-                  key={key}
-                  style={{
-                    display: 'flex',
-                    gap: 5,
-                    alignItems: 'center',
-                    fontSize: 11,
-                    color: 'rgba(0,0,0,0.3)',
-                  }}
-                >
-                  <span
-                    style={{
-                      background: 'rgba(0,0,0,0.06)',
-                      borderRadius: 4,
-                      padding: '1px 5px',
-                      fontFamily: 'monospace',
-                      fontSize: 10,
-                    }}
-                  >
-                    {key}
-                  </span>{' '}
-                  {label}
-                </span>
-              ))}
-            </div>
-          </>
+            {results.map((item, idx) => (
+              <ResultRow
+                key={`${item.kind}-${item.url || item.label}-${idx}`}
+                item={item}
+                isActive={idx === activeIdx}
+                accentColor={accentColor}
+                onClick={() => selectResult(item)}
+                onMouseEnter={() => setActiveIdx(idx)}
+              />
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Bottom hint */}
-      <div
-        style={{
-          marginTop: 24,
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-        }}
-      >
-        <div
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: accentColor,
-          }}
-        />
-        <span style={{ fontSize: 12, color: 'rgba(26,24,37,0.4)' }}>
-          Ctrl+Space for command bar
-        </span>
+      {/* Keyboard hint */}
+      <div style={{ marginTop: 12, fontSize: 11, color: 'rgba(74,69,102,0.5)', display: 'flex', gap: 12 }}>
+        <span><kbd style={kbdStyle}>↑↓</kbd> navigate</span>
+        <span><kbd style={kbdStyle}>↵</kbd> open</span>
+        <span><kbd style={kbdStyle}>Ctrl+Space</kbd> command bar</span>
       </div>
     </div>
   )
 }
 
-export default NewTab
+const kbdStyle = {
+  background: 'rgba(255,255,255,0.6)', borderRadius: 4, padding: '1px 6px',
+  fontSize: 11, fontFamily: 'inherit', border: '1px solid rgba(0,0,0,0.1)',
+}
+
+function ResultRow({ item, isActive, accentColor, onClick, onMouseEnter }) {
+  const isSwitchToTab = item.kind === 'switch'
+
+  const bg = isSwitchToTab && isActive
+    ? `${accentColor}30`
+    : isSwitchToTab
+    ? `${accentColor}14`
+    : isActive
+    ? `${accentColor}0d`
+    : 'transparent'
+
+  const leftBorder = isActive ? `3px solid ${accentColor}` : '3px solid transparent'
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '0 16px', height: 50, cursor: 'pointer',
+        background: bg,
+        borderLeft: leftBorder,
+        transition: 'background 60ms',
+      }}
+    >
+      {/* Icon */}
+      {item.kind === 'tab' || item.kind === 'switch' || item.kind === 'history' ? (
+        <FavIcon src={item.favIconUrl} title={item.title} url={item.url} size={18} />
+      ) : (
+        <span style={{
+          width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+          background: item.icon === 'search' ? accentColor : '#34D399',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {item.icon === 'search'
+            ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          }
+        </span>
+      )}
+
+      {/* Text */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, color: '#1A1825', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: isSwitchToTab ? 500 : 400 }}>
+          {item.title || item.label || item.url}
+        </div>
+        {(item.url || item.subtitle) && (
+          <div style={{ fontSize: 11, color: 'rgba(26,24,37,0.45)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {item.subtitle || getDomain(item.url)}
+          </div>
+        )}
+      </div>
+
+      {/* Switch to Tab badge */}
+      {isSwitchToTab && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: accentColor, flexShrink: 0 }}>
+          Switch to Tab
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </div>
+      )}
+
+      {item.kind === 'history' && (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(26,24,37,0.3)" strokeWidth="2" strokeLinecap="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+      )}
+    </div>
+  )
+}

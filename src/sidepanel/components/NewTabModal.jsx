@@ -1,297 +1,207 @@
-import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Fuse from 'fuse.js'
+import { getFaviconSrc, getFaviconFallback, isUrl } from '@shared/utils.js'
+import { Messages } from '@shared/messages.js'
 
-/**
- * Enhanced New Tab Modal with fuzzy tab search, history search,
- * URL/Google search fallback, and keyboard navigation.
- *
- * @param {{ isOpen: boolean, onClose: () => void, tabs: Array, accentColor: string }} props
- */
-export default function NewTabModal({ isOpen, onClose, tabs = [], accentColor = '#8B7CF6' }) {
-  const inputRef = useRef(null)
-  const [query, setQuery] = useState('')
-  const [historyResults, setHistoryResults] = useState([])
-  const [selectedIndex, setSelectedIndex] = useState(0)
-  const debounceTimer = useRef(null)
-
-  // Auto-focus the input when the modal opens; reset state
-  useEffect(() => {
-    if (isOpen) {
-      setQuery('')
-      setHistoryResults([])
-      setSelectedIndex(0)
-      requestAnimationFrame(() => {
-        inputRef.current?.focus()
-      })
-    }
-  }, [isOpen])
-
-  // Fuse.js instance for fuzzy tab search
-  const fuse = useMemo(() => new Fuse(tabs, {
-    keys: ['title', 'url'],
-    threshold: 0.4,
-    includeScore: true,
-  }), [tabs])
-
-  // Debounced history search
-  useEffect(() => {
-    clearTimeout(debounceTimer.current)
-    if (query.length < 2) {
-      setHistoryResults([])
-      return
-    }
-    debounceTimer.current = setTimeout(() => {
-      chrome.history.search({ text: query, maxResults: 5 }, (results) => {
-        setHistoryResults(results || [])
-      })
-    }, 150)
-    return () => clearTimeout(debounceTimer.current)
-  }, [query])
-
-  // Reset selected index when results change
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [query])
-
-  /**
-   * Determine if the input looks like a URL.
-   */
-  const isUrlLike = (text) => {
-    const t = text.trim()
-    return t.includes('.') || t.startsWith('http://') || t.startsWith('https://') || t.startsWith('chrome://')
+async function getSearchUrl(query) {
+  const stored = await chrome.storage.local.get('arcSettings')
+  const engine = stored.arcSettings?.searchEngine || 'brave'
+  const map = {
+    brave:      `https://search.brave.com/search?q=${encodeURIComponent(query)}`,
+    google:     `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+    duckduckgo: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+    bing:       `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
   }
+  return map[engine] || map.brave
+}
 
-  /**
-   * Normalise a URL-like string to a full URL.
-   */
-  const toUrl = (text) => {
-    const t = text.trim()
-    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(t) && !t.startsWith('chrome://')) {
-      return 'https://' + t
-    }
-    return t
+function FavIcon({ src, title, url, size = 18 }) {
+  const [err, setErr] = useState(false)
+  const s  = getFaviconSrc(src)
+  const fb = getFaviconFallback(title, url)
+  if (s && !err) {
+    return (
+      <img src={s} width={size} height={size}
+        style={{ borderRadius: 4, objectFit: 'contain', flexShrink: 0 }}
+        onError={() => setErr(true)} alt="" />
+    )
   }
-
-  // Build results list
-  const results = useMemo(() => {
-    const items = []
-
-    if (!query.trim()) {
-      // Show first 6 open tabs
-      const shown = tabs.slice(0, 6)
-      if (shown.length > 0) {
-        items.push({ type: 'section', label: 'Open Tabs', key: 'section-open' })
-        for (const tab of shown) {
-          items.push({ type: 'tab', tab, key: `tab-${tab.id}` })
-        }
-      }
-    } else {
-      // Fuzzy search tabs
-      const tabMatches = fuse.search(query).slice(0, 6)
-      if (tabMatches.length > 0) {
-        items.push({ type: 'section', label: 'Open Tabs', key: 'section-tabs' })
-        for (const match of tabMatches) {
-          items.push({ type: 'tab', tab: match.item, key: `tab-${match.item.id}` })
-        }
-      }
-
-      // History results
-      if (historyResults.length > 0) {
-        items.push({ type: 'section', label: 'History', key: 'section-history' })
-        for (const h of historyResults) {
-          items.push({ type: 'history', url: h.url, title: h.title || h.url, key: `history-${h.url}` })
-        }
-      }
-
-      // URL action
-      if (isUrlLike(query)) {
-        items.push({ type: 'url', url: toUrl(query), label: `Open: ${query.trim()}`, key: 'action-url' })
-      }
-
-      // Google search action
-      items.push({
-        type: 'search',
-        url: `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`,
-        label: `Search Google for "${query.trim()}"`,
-        key: 'action-search',
-      })
-    }
-
-    return items
-  }, [query, tabs, fuse, historyResults])
-
-  // Selectable items (exclude section headers)
-  const selectableItems = useMemo(() => results.filter((r) => r.type !== 'section'), [results])
-
-  const openItem = useCallback((item) => {
-    if (!item) return
-    if (item.type === 'tab') {
-      chrome.tabs.update(item.tab.id, { active: true })
-    } else {
-      chrome.tabs.create({ url: item.url })
-    }
-    onClose()
-  }, [onClose])
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.min(i + 1, selectableItems.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setSelectedIndex((i) => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const item = selectableItems[selectedIndex]
-      if (item) {
-        openItem(item)
-      } else if (query.trim()) {
-        // Fallback: open as URL or search
-        const url = isUrlLike(query)
-          ? toUrl(query)
-          : `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`
-        chrome.tabs.create({ url })
-        onClose()
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
-    }
-  }
-
-  const handleBackdropClick = (e) => {
-    if (e.target === e.currentTarget) onClose()
-  }
-
-  if (!isOpen) return null
-
-  // Map selectable items to their index for highlighting
-  let selectableIdx = -1
-
   return (
-    <div className="new-tab-modal-backdrop" onClick={handleBackdropClick}>
-      <div className="new-tab-modal" style={{ '--accent': accentColor }}>
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Search tabs or enter URL…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          autoComplete="off"
-          spellCheck={false}
-        />
-
-        {results.length > 0 && (
-          <div className="new-tab-modal-results">
-            {results.map((item) => {
-              if (item.type === 'section') {
-                return (
-                  <div key={item.key} className="new-tab-result-section-label">
-                    {item.label}
-                  </div>
-                )
-              }
-
-              selectableIdx++
-              const idx = selectableIdx
-              const isSelected = idx === selectedIndex
-
-              if (item.type === 'tab') {
-                const { tab } = item
-                return (
-                  <div
-                    key={item.key}
-                    className={`new-tab-result-item${isSelected ? ' selected' : ''}`}
-                    onClick={() => openItem(item)}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                  >
-                    <TabFavicon tab={tab} />
-                    <div className="result-text">
-                      <div className="result-title">{tab.title || 'New Tab'}</div>
-                      <div className="result-sub">{tab.url}</div>
-                    </div>
-                  </div>
-                )
-              }
-
-              if (item.type === 'history') {
-                return (
-                  <div
-                    key={item.key}
-                    className={`new-tab-result-item${isSelected ? ' selected' : ''}`}
-                    onClick={() => openItem(item)}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                  >
-                    <div className="result-icon-fallback">📜</div>
-                    <div className="result-text">
-                      <div className="result-title">{item.title}</div>
-                      <div className="result-sub">{item.url}</div>
-                    </div>
-                  </div>
-                )
-              }
-
-              if (item.type === 'url') {
-                return (
-                  <div
-                    key={item.key}
-                    className={`new-tab-result-item${isSelected ? ' selected' : ''}`}
-                    onClick={() => openItem(item)}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                  >
-                    <div className="result-icon-fallback">🔗</div>
-                    <div className="result-text">
-                      <div className="result-title">{item.label}</div>
-                    </div>
-                  </div>
-                )
-              }
-
-              if (item.type === 'search') {
-                return (
-                  <div
-                    key={item.key}
-                    className={`new-tab-result-item${isSelected ? ' selected' : ''}`}
-                    onClick={() => openItem(item)}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                  >
-                    <div className="result-icon-fallback">🔍</div>
-                    <div className="result-text">
-                      <div className="result-title">{item.label}</div>
-                    </div>
-                  </div>
-                )
-              }
-
-              return null
-            })}
-          </div>
-        )}
-
-        <div className="new-tab-modal-footer">
-          ↑↓ navigate &nbsp;·&nbsp; ↵ open &nbsp;·&nbsp; Esc close
-        </div>
-      </div>
-    </div>
+    <span className="new-tab-modal-result-fallback" style={{ background: fb.color, width: size, height: size }}>
+      {fb.letter}
+    </span>
   )
 }
 
 /**
- * Favicon with fallback for a tab result item.
+ * Ctrl+T modal — Arc-style new tab / URL input overlay inside the side panel.
  */
-function TabFavicon({ tab }) {
-  const [imgError, setImgError] = React.useState(false)
-  if (tab.favIconUrl && !imgError) {
-    return (
-      <img
-        className="result-icon"
-        src={tab.favIconUrl}
-        alt=""
-        onError={() => setImgError(true)}
-      />
-    )
-  }
-  const initial = (tab.title || tab.url || '?')[0].toUpperCase()
-  return <div className="result-icon-fallback">{initial}</div>
+export default function NewTabModal({ isOpen, onClose, tabs, accentColor }) {
+  const [query, setQuery]     = useState('')
+  const [history, setHistory] = useState([])
+  const [activeIdx, setActiveIdx] = useState(0)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      setQuery('')
+      setHistory([])
+      setActiveIdx(0)
+      setTimeout(() => inputRef.current?.focus(), 50)
+    }
+  }, [isOpen])
+
+  // Debounced history search
+  useEffect(() => {
+    if (!query || query.length < 2) { setHistory([]); return }
+    const t = setTimeout(async () => {
+      try {
+        const results = await chrome.history.search({ text: query, maxResults: 5, startTime: 0 })
+        const tabUrls = new Set(tabs.map((t) => t.url))
+        setHistory(
+          results
+            .filter((r) => r.url && !tabUrls.has(r.url) && !r.url.startsWith('chrome://') && !r.url.startsWith('brave://'))
+            .slice(0, 4)
+            .map((r) => ({ kind: 'history', title: r.title || r.url, url: r.url, favIconUrl: '' }))
+        )
+      } catch {}
+    }, 120)
+    return () => clearTimeout(t)
+  }, [query, tabs])
+
+  const fuse = useMemo(
+    () => new Fuse(tabs, { keys: ['title', 'url'], threshold: 0.4 }),
+    [tabs]
+  )
+
+  const results = useMemo(() => {
+    const items = []
+    if (!query) return items
+
+    const matched = fuse.search(query).slice(0, 5).map((r) => r.item)
+    matched.forEach((t, i) => {
+      items.push({ kind: i === 0 ? 'switch' : 'tab', id: t.id, title: t.title, url: t.url, favIconUrl: t.favIconUrl })
+    })
+    history.forEach((r) => items.push(r))
+
+    if (isUrl(query)) {
+      const url = /^https?:\/\//i.test(query) ? query : `https://${query}`
+      items.push({ kind: 'action', icon: 'url', label: `Open ${query}`, url })
+    }
+    items.push({ kind: 'action', icon: 'search', label: `Search "${query}"`, query })
+    return items
+  }, [query, fuse, history])
+
+  useEffect(() => setActiveIdx(0), [query])
+
+  const select = useCallback(async (item) => {
+    if (!item) return
+    if (item.kind === 'switch' || item.kind === 'tab') {
+      chrome.tabs.update(item.id, { active: true })
+    } else if (item.kind === 'history') {
+      chrome.tabs.create({ url: item.url })
+    } else if (item.kind === 'action') {
+      if (item.url) {
+        chrome.tabs.create({ url: item.url })
+      } else if (item.query) {
+        const url = await getSearchUrl(item.query)
+        chrome.tabs.create({ url })
+      }
+    }
+    onClose()
+  }, [onClose])
+
+  const handleKeyDown = useCallback(async (e) => {
+    if (e.key === 'Escape') { onClose(); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, results.length - 1)); return }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); return }
+    if (e.key === 'Enter') { e.preventDefault(); await select(results[activeIdx]) }
+  }, [results, activeIdx, select, onClose])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="new-tab-modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="new-tab-modal">
+        {/* Search input */}
+        <div className="new-tab-modal-search">
+          <svg className="new-tab-modal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            ref={inputRef}
+            className="new-tab-modal-input"
+            placeholder="Search tabs, history, or type a URL…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            spellCheck={false}
+            autoComplete="off"
+            style={{ caretColor: accentColor }}
+          />
+          <span className="new-tab-modal-esc">ESC</span>
+        </div>
+
+        {/* Results */}
+        {results.length > 0 && (
+          <div className="new-tab-modal-results">
+            {results.map((item, idx) => {
+              const isSwitchToTab = item.kind === 'switch'
+              return (
+                <div
+                  key={`${item.kind}-${item.url || item.label}-${idx}`}
+                  className={[
+                    'new-tab-modal-result',
+                    idx === activeIdx ? 'selected' : '',
+                    isSwitchToTab ? 'switch-to-tab' : '',
+                  ].join(' ').trim()}
+                  onClick={() => select(item)}
+                  onMouseEnter={() => setActiveIdx(idx)}
+                >
+                  {/* Icon */}
+                  {item.kind === 'action' ? (
+                    <span style={{
+                      width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                      background: item.icon === 'search' ? accentColor : '#34D399',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {item.icon === 'search'
+                        ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      }
+                    </span>
+                  ) : (
+                    <FavIcon src={item.favIconUrl} title={item.title} url={item.url} size={18} />
+                  )}
+
+                  {/* Text */}
+                  <div className="new-tab-modal-result-text">
+                    <div className="new-tab-modal-result-title">{item.title || item.label || item.url}</div>
+                    {item.url && <div className="new-tab-modal-result-url">{item.url}</div>}
+                  </div>
+
+                  {/* Switch to Tab badge */}
+                  {isSwitchToTab && (
+                    <div className="new-tab-modal-switch-badge">
+                      Switch to Tab
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <polyline points="9 18 15 12 9 6"/>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Hint footer */}
+        <div className="new-tab-modal-hint">
+          <span><span className="new-tab-modal-hint-key">↑↓</span> navigate</span>
+          <span><span className="new-tab-modal-hint-key">↵</span> open</span>
+          <span><span className="new-tab-modal-hint-key">Esc</span> close</span>
+        </div>
+      </div>
+    </div>
+  )
 }
