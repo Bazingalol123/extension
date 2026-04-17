@@ -11,7 +11,7 @@
   "options_ui": { "page": "options/index.html", "open_in_tab": true },
   "web_accessible_resources": [
     {
-      "resources": ["tabswitcher.html", "tabswitcher/index.js", "chunks/*", "assets/*"],
+      "resources": ["tabswitcher.html", "tabswitcher/index.js", "newtabmodal.html", "newtabmodal/newtabmodal.js", "chunks/*", "assets/*"],
       "matches": ["<all_urls>"]
     }
   ],

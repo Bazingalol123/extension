@@ -7,13 +7,26 @@ function copyExtensionFiles() {
   return {
     name: 'copy-extension-files',
     closeBundle() {
-      // manifest.json
-      copyFileSync(resolve(__dirname, 'manifest.json'), resolve(__dirname, 'dist/manifest.json'))
+      copyFileSync(
+        resolve(__dirname, 'manifest.json'),
+        resolve(__dirname, 'dist/manifest.json')
+      )
+      // Copy popup HTML pages that aren't Vite entry points
+      const htmlFiles = ['newtabmodal.html', 'tabswitcher.html']
+      for (const f of htmlFiles) {
+        if (existsSync(resolve(__dirname, f))) {
+          copyFileSync(resolve(__dirname, f), resolve(__dirname, 'dist', f))
+        }
+      }
 
-      // options/index.html
       const optionsDir = resolve(__dirname, 'dist/options')
       if (!existsSync(optionsDir)) mkdirSync(optionsDir, { recursive: true })
-      copyFileSync(resolve(__dirname, 'src/options/index.html'), resolve(__dirname, 'dist/options/index.html'))
+      if (existsSync(resolve(__dirname, 'src/options/index.html'))) {
+        copyFileSync(
+          resolve(__dirname, 'src/options/index.html'),
+          resolve(__dirname, 'dist/options/index.html')
+        )
+      }
     },
   }
 }
@@ -21,9 +34,7 @@ function copyExtensionFiles() {
 export default defineConfig({
   plugins: [react(), copyExtensionFiles()],
   resolve: {
-    alias: {
-      '@shared': resolve(__dirname, 'src/shared'),
-    },
+    alias: { '@shared': resolve(__dirname, 'src/shared') },
   },
   base: './',
   build: {
@@ -33,14 +44,11 @@ export default defineConfig({
       input: {
         sidepanel:        resolve(__dirname, 'sidepanel.html'),
         newtab:           resolve(__dirname, 'newtab.html'),
-        tabswitcher:      resolve(__dirname, 'tabswitcher.html'),
-        commandbar:       resolve(__dirname, 'src/commandbar/main.jsx'),
         'service-worker': resolve(__dirname, 'src/background/service-worker.js'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.name === 'service-worker') return 'background/service-worker.js'
-          if (chunkInfo.name === 'commandbar')     return 'commandbar/commandbar.js'
           return '[name]/index.js'
         },
         chunkFileNames:  'chunks/[name]-[hash].js',

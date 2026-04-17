@@ -50,9 +50,15 @@ export default function App() {
         e.preventDefault(); setSidebarCollapsed(!sidebarCollapsed); return
       }
 
-      // Ctrl+T — new tab modal
+      // Ctrl+T — open centered new tab modal popup window
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't' && !e.shiftKey) {
-        e.preventDefault(); setShowNewTabModal(true); return
+        e.preventDefault()
+        chrome.runtime.sendMessage({
+          type: Messages.NEW_TAB_MODAL_OPEN,
+          screenWidth:  window.screen.width,
+          screenHeight: window.screen.height,
+        }).catch(() => {})
+        return
       }
 
       // Ctrl+Q — open Tab Switcher popup window
