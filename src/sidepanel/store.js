@@ -22,35 +22,41 @@ async function sendMessage(type, payload = {}) {
 function parseState(rawState) {
   if (!rawState) return {}
   return {
-    spaces:          rawState.spaces         ?? [],
-    activeSpaceId:   rawState.activeSpaceId  ?? '',
-    tabs:            rawState.tabs           ?? [],
-    favorites:       rawState.favorites      ?? [],
-    pinnedUrls:      rawState.pinnedUrls     ?? [],
-    folders:         rawState.folders        ?? [],
-    recentlyClosed:  rawState.recentlyClosed ?? [],
-    sidebarCollapsed: rawState.sidebarCollapsed ?? false,
-    tabAccessOrder:  rawState.tabAccessOrder  ?? [],
-    darkMode:        rawState.darkMode        ?? 'auto',
+    spaces:               rawState.spaces              ?? [],
+    activeSpaceId:        rawState.activeSpaceId       ?? '',
+    tabs:                 rawState.tabs                ?? [],
+    favorites:            rawState.favorites           ?? [],
+    favoriteFolders:      rawState.favoriteFolders     ?? [],
+    favoriteFolderState:  rawState.favoriteFolderState ?? {},
+    pinnedUrls:           rawState.pinnedUrls          ?? [],
+    recentlyClosed:       rawState.recentlyClosed      ?? [],
+    sidebarCollapsed:     rawState.sidebarCollapsed    ?? false,
+    tabAccessOrder:       rawState.tabAccessOrder      ?? [],
+    darkMode:             rawState.darkMode            ?? 'auto',
   }
 }
 
 const useStore = create((set, get) => ({
   // ── State ──────────────────────────────────────────────────────────────────
-  spaces:           [],
-  activeSpaceId:    '',
-  tabs:             [],
-  favorites:        [],
-  pinnedUrls:       [],
-  folders:          [],
-  recentlyClosed:   [],
-  sidebarCollapsed: false,
-  tabAccessOrder:   [],
-  activeTabId:      null,
-  darkMode:         'auto',
-  loading:          true,
-  sessions:         [],
+  // ── State ──────────────────────────────────────────────────────────────────
+  spaces:              [],
+  activeSpaceId:       '',
+  tabs:                [],
+  favorites:           [],
+  favoriteFolders:     [],   // Phase 2b
+  favoriteFolderState: {},   // Phase 2b — folderId → collapsed
+  pinnedUrls:          [],
+  recentlyClosed:      [],
+  sidebarCollapsed:    false,
+  tabAccessOrder:      [],
+  activeTabId:         null,
+  darkMode:            'auto',
+  loading:             true,
+  sessions:            [],
+  myWindowId:          null,  // Phase 1: this sidepanel's owning window
 
+  // Setter for myWindowId, called from main.jsx on mount
+  setMyWindowId: (id) => set({ myWindowId: id }),
   // ── Load ──────────────────────────────────────────────────────────────────
   load: async () => {
     try {
@@ -163,6 +169,7 @@ const useStore = create((set, get) => ({
   },
 
   // ── Favorites ─────────────────────────────────────────────────────────────
+  // ── Favorites (bookmarks-backed, Phase 2b) ────────────────────────────────
   activateFavoriteUrl: (url) => {
     const { tabs } = get()
     const existing = tabs.find((t) => t.url === url)
@@ -174,9 +181,10 @@ const useStore = create((set, get) => ({
     }
   },
 
-  addFavorite: async (tab) => {
+  addFavorite: async (tab, parentId) => {
     const state = await sendMessage(Messages.ADD_FAVORITE, {
       url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl,
+      ...(parentId ? { parentId } : {}),
     })
     if (state) set(parseState(state))
   },
@@ -194,6 +202,43 @@ const useStore = create((set, get) => ({
       }).filter(Boolean),
     }))
     await sendMessage(Messages.REORDER_FAVORITES, { ids })
+  },
+
+  renameFavorite: async (id, title) => {
+    const state = await sendMessage(Messages.RENAME_FAVORITE, { id, title })
+    if (state) set(parseState(state))
+  },
+
+  moveFavorite: async (id, parentId, index) => {
+    const state = await sendMessage(Messages.MOVE_FAVORITE, { id, parentId, index })
+    if (state) set(parseState(state))
+  },
+
+  createFavoriteFolder: async (title) => {
+    const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, { title: title || 'New folder' })
+    if (state) set(parseState(state))
+  },
+
+  deleteFavoriteFolder: async (id) => {
+    const state = await sendMessage(Messages.DELETE_FAVORITE_FOLDER, { id })
+    if (state) set(parseState(state))
+  },
+
+  renameFavoriteFolder: async (id, title) => {
+    const state = await sendMessage(Messages.RENAME_FAVORITE_FOLDER, { id, title })
+    if (state) set(parseState(state))
+  },
+
+  toggleFavoriteFolder: async (id) => {
+    // Optimistic UI: toggle local first, then confirm with SW
+    set((s) => ({
+      favoriteFolderState: {
+        ...s.favoriteFolderState,
+        [id]: !s.favoriteFolderState?.[id],
+      },
+    }))
+    const state = await sendMessage(Messages.TOGGLE_FAVORITE_FOLDER, { id })
+    if (state) set(parseState(state))
   },
 
   // ── Pinned URLs ───────────────────────────────────────────────────────────
@@ -219,44 +264,7 @@ const useStore = create((set, get) => ({
     await sendMessage(Messages.REORDER_PINS, { ids })
   },
 
-  // ── Folders ───────────────────────────────────────────────────────────────
-  createFolder: async (spaceId, name, tabIds) => {
-    const state = await sendMessage(Messages.CREATE_FOLDER, { spaceId, name, tabIds })
-    if (state) set(parseState(state))
-  },
 
-  deleteFolder: async (folderId) => {
-    const state = await sendMessage(Messages.DELETE_FOLDER, { folderId })
-    if (state) set(parseState(state))
-  },
-
-  renameFolder: async (folderId, name) => {
-    const state = await sendMessage(Messages.RENAME_FOLDER, { folderId, name })
-    if (state) set(parseState(state))
-  },
-
-  toggleFolder: async (folderId) => {
-    set((s) => ({
-      folders: s.folders.map((f) =>
-        f.id === folderId ? { ...f, collapsed: !f.collapsed } : f
-      ),
-    }))
-    await sendMessage(Messages.TOGGLE_FOLDER, { folderId })
-  },
-
-  moveTabToFolder: async (tabId, folderId) => {
-    const state = await sendMessage(Messages.MOVE_TAB_TO_FOLDER, { tabId, folderId })
-    if (state) set(parseState(state))
-  },
-
-  removeTabFromFolder: async (tabId) => {
-    const state = await sendMessage(Messages.REMOVE_TAB_FROM_FOLDER, { tabId })
-    if (state) set(parseState(state))
-  },
-
-  reorderFolders: async (spaceId, folderOrders) => {
-    await sendMessage(Messages.REORDER_FOLDERS, { spaceId, folderOrders })
-  },
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
   setSidebarCollapsed: async (collapsed) => {
