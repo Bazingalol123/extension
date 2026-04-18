@@ -26,24 +26,25 @@
  * @property {string} spaceId - ID of the space this tab belongs to
  * @property {number} openedAt - Timestamp when tab was opened
  * @property {boolean} muted - Whether tab audio is muted
+ * @property {number} [windowId] - Chrome window ID that owns this tab (Phase 1 — may be missing on legacy state, backfilled by syncTabs)
  */
 
 /**
  * @typedef {Object} Favorite
- * @property {string} id - Unique favorite identifier
+ * @property {string} id - Bookmark node id (from chrome.bookmarks)
  * @property {string} url - Favorite URL
- * @property {string} title - Display title
- * @property {string} favIcon - Favicon URL
+ * @property {string} title - Display title (editable — this is how rename works)
+ * @property {string} parentId - Parent bookmark folder id (root or a folder under root)
+ * @property {number} order - Index within parent folder
+ * @property {string} favIconUrl - Favicon from our faviconCache (bookmarks API has no favicons)
  */
 
 /**
- * @typedef {Object} Folder
- * @property {string} id - Unique folder ID
- * @property {string} name - Folder display name
- * @property {string} spaceId - Which space this folder belongs to
- * @property {number[]} tabIds - Ordered array of tab IDs in this folder
- * @property {boolean} collapsed - Whether the folder is collapsed
- * @property {number} order - Sort order among tabs/folders in the space
+ * @typedef {Object} FavoriteFolder
+ * @property {string} id - Bookmark folder node id
+ * @property {string} title - Folder title (editable)
+ * @property {string} parentId - Always the favorites root in v1 (no nested folders yet in UI)
+ * @property {number} order - Index within parent
  */
 
 /**
@@ -53,7 +54,6 @@
  * @property {Tab[]} tabs - All tracked tabs
  * @property {Favorite[]} favorites - Global favorites
  * @property {PinnedUrl[]} pinnedUrls - Global pinned URLs (across all spaces)
- * @property {Folder[]} folders - Collapsible tab folders
  * @property {boolean} sidebarCollapsed - Whether sidebar is collapsed to icon rail
  */
 

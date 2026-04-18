@@ -494,54 +494,6 @@ html, body, #root {
 /* ─── Divider ────────────────────────────────────────── */
 .divider { height: 1px; background: var(--divider); margin: 4px 14px; }
 
-/* ─── Folder ─────────────────────────────────────────── */
-.folder-item { margin: 2px 0; }
-.folder-header {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 8px; cursor: pointer;
-  color: var(--text-secondary); font-size: 12px; font-weight: 500;
-  user-select: none; transition: background 0.15s;
-  margin: 1px 7px;
-}
-.folder-header:hover { background: var(--bg-hover); }
-.folder-header .chevron {
-  font-size: 10px; transition: transform 0.2s;
-  color: var(--text-tertiary); width: 14px; text-align: center; display: inline-block;
-}
-.folder-header .chevron.expanded { transform: rotate(90deg); }
-.folder-header .folder-icon { font-size: 14px; }
-.folder-header .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
-.folder-header .folder-count { color: var(--text-tertiary); font-size: 11px; }
-.folder-header .folder-name-input {
-  flex: 1;
-  background: var(--bg-hover);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px; padding: 2px 6px; outline: none;
-  font-family: var(--font);
-}
-.folder-children { padding-left: 12px; overflow: hidden; }
-.folder-children.collapsed { display: none; }
-.folder-item.drop-target .folder-header { background: rgba(124,106,247,0.1); outline: 1px dashed var(--accent); }
-.folder-context-menu {
-  position: fixed;
-  background: var(--ctx-bg); border: 1px solid var(--ctx-border);
-  border-radius: var(--radius-md); padding: 4px; min-width: 160px;
-  z-index: 9999; box-shadow: 0 8px 32px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08);
-  animation: menu-in .1s ease-out;
-}
-.folder-context-menu button {
-  display: flex; align-items: center;
-  width: 100%; background: none; border: none;
-  padding: 6px 10px; border-radius: 6px;
-  cursor: pointer; font-size: 12.5px; gap: 8px;
-  color: var(--text-primary); font-family: var(--font);
-  transition: background var(--ease);
-}
-.folder-context-menu button:hover { background: var(--bg-hover); }
-.folder-context-menu button.danger { color: #dc2626; }
-.folder-context-menu button.danger:hover { background: rgba(220,38,38,0.06); }
 
 /* ─── Recently Closed ────────────────────────────────── */
 .recently-closed-bar {

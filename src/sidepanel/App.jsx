@@ -8,7 +8,6 @@ import SpaceSelector from './components/SpaceSelector'
 import FavoritesBar, { FavTile } from './components/FavoritesBar'
 import PinnedUrlsBar, { PinnedTile } from './components/PinnedUrlsBar'
 import TabItem, { SortableTabItem } from './components/TabItem'
-import FolderItem from './components/FolderItem'
 import BottomBar from './components/BottomBar'
 import NewTabModal from './components/NewTabModal'
 import RecentlyClosedBar from './components/RecentlyClosedBar'
@@ -17,13 +16,14 @@ import { urlsMatch } from '@shared/utils.js'
 import { Messages } from '@shared/messages.js'
 
 export default function App() {
-  const {
-    spaces, activeSpaceId, tabs, favorites, pinnedUrls, folders,
-    activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
-    load, setSidebarCollapsed, switchSpace, activateFavoriteUrl,
-    reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
-    createFolder, moveTabToFolder, setDarkMode,
-  } = useStore()
+    const {
+        spaces, activeSpaceId, tabs, favorites, pinnedUrls,
+        activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
+        myWindowId,
+        load, setSidebarCollapsed, switchSpace, activateFavoriteUrl,
+        reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
+         setDarkMode,
+    } = useStore()
 
   const [showNewTabModal, setShowNewTabModal] = useState(false)
   const [showSessions, setShowSessions]       = useState(false)
@@ -120,24 +120,21 @@ export default function App() {
   const activeSpace   = useMemo(() => spaces.find((s) => s.id === activeSpaceId), [spaces, activeSpaceId])
   const accentColor   = activeSpace?.color ?? '#7C6AF7'
 
-  const spaceTabs = useMemo(() => tabs.filter((t) => t.spaceId === activeSpaceId), [tabs, activeSpaceId])
-
-  const spaceFolders = useMemo(
-    () => [...(folders || [])].filter((f) => f.spaceId === activeSpaceId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [folders, activeSpaceId]
+    const windowTabs = useMemo(
+    () => (myWindowId == null ? [] : tabs.filter((t) => t.windowId === myWindowId)),
+    [tabs, myWindowId]
   )
 
-  const folderedTabIds = useMemo(() => {
-    const ids = new Set()
-    for (const f of spaceFolders) f.tabIds.forEach((id) => ids.add(id))
-    return ids
-  }, [spaceFolders])
+    const spaceTabs = useMemo(
+        () => windowTabs.filter((t) => t.spaceId === activeSpaceId),
+        [windowTabs, activeSpaceId]
+    )
 
-  const sortedLooseTabs = useMemo(
-    () => [...spaceTabs.filter((t) => !folderedTabIds.has(t.id))].sort((a, b) => b.openedAt - a.openedAt),
-    [spaceTabs, folderedTabIds]
+    const sortedLooseTabs = useMemo(
+    () => [...spaceTabs].sort((a, b) => b.openedAt - a.openedAt),
+    [spaceTabs]
   )
-
+   
   const sortedFavorites = useMemo(() => [...favorites].sort((a, b) => a.order - b.order), [favorites])
   const sortedPins      = useMemo(() => [...pinnedUrls].sort((a, b) => a.order - b.order), [pinnedUrls])
 
@@ -185,15 +182,8 @@ export default function App() {
           const tab = sortedLooseTabs.find((t) => String(t.id) === String(active.id))
           if (tab) pinUrl(tab); return
         }
-        if (String(over.id).startsWith('folder-')) {
-          moveTabToFolder(Number(active.id), String(over.id).replace('folder-', '')); return
-        }
-        const overIsLoose = sortedLooseTabs.some((t) => String(t.id) === String(over.id))
+       const overIsLoose = sortedLooseTabs.some((t) => String(t.id) === String(over.id))
         if (overIsLoose) {
-          const aId = Number(active.id), oId = Number(over.id)
-          if (!folderedTabIds.has(aId) && !folderedTabIds.has(oId) && aId !== oId) {
-            createFolder(activeSpaceId, 'New Folder', [oId, aId]); return
-          }
           const oi = sortedLooseTabs.findIndex((t) => String(t.id) === String(active.id))
           const ni = sortedLooseTabs.findIndex((t) => String(t.id) === String(over.id))
           if (oi !== -1 && ni !== -1) reorderTabs(arrayMove(sortedLooseTabs, oi, ni).map((t) => t.id))
@@ -208,8 +198,8 @@ export default function App() {
         if (oi !== -1 && ni !== -1) reorderPins(arrayMove(sortedPins, oi, ni).map((p) => p.id))
       }
     },
-    [sortedLooseTabs, sortedFavorites, sortedPins, folderedTabIds, activeSpaceId,
-     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl, createFolder, moveTabToFolder]
+    [sortedLooseTabs, sortedFavorites, sortedPins,
+     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl]
   )
 
   if (loading) return <div className="loading-state">Loading…</div>
@@ -289,22 +279,17 @@ export default function App() {
             ) : filteredLooseTabs.length === 0 && tabSearch ? (
               <div className="section-empty">No tabs match "{tabSearch}"</div>
             ) : (
-              <>
-                {spaceFolders.map((folder) => (
-                  <FolderItem key={folder.id} folder={folder} tabs={spaceTabs} activeTabId={activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} duplicateUrls={duplicateUrls} />
+              <SortableContext items={filteredLooseTabs.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                {filteredLooseTabs.map((tab) => (
+                  <SortableTabItem key={tab.id} id={tab.id} tab={tab} isActive={tab.id === activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} isDuplicate={duplicateUrls.has(tab.url)} />
                 ))}
-                <SortableContext items={filteredLooseTabs.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                  {filteredLooseTabs.map((tab) => (
-                    <SortableTabItem key={tab.id} id={tab.id} tab={tab} isActive={tab.id === activeTabId} accentColor={accentColor} spaces={spaces} folderId={null} spaceFolders={spaceFolders} activeSpaceId={activeSpaceId} isDuplicate={duplicateUrls.has(tab.url)} />
-                  ))}
-                </SortableContext>
-              </>
+              </SortableContext>
             )}
           </div>
         </div>
 
         <DragOverlay>
-          {activeDragTab && <div style={{ opacity: 0.85, transform: 'scale(1.02)', cursor: 'grabbing' }}><TabItem tab={activeDragTab} isActive={activeDragTab.id === activeTabId} accentColor={accentColor} spaces={spaces} folderId={null} spaceFolders={spaceFolders} activeSpaceId={activeSpaceId} /></div>}
+          {activeDragTab && <div style={{ opacity: 0.85, transform: 'scale(1.02)', cursor: 'grabbing' }}><TabItem tab={activeDragTab} isActive={activeDragTab.id === activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} /></div>}
           {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavTile fav={activeDragFav} isDragging accentColor={accentColor} /></div>}
           {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={tabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
         </DragOverlay>
@@ -315,7 +300,6 @@ export default function App() {
       <BottomBar
         onNewTab={() => setShowNewTabModal(true)}
         onNewSpace={() => setNewSpaceTrigger((n) => n + 1)}
-        onNewFolder={() => createFolder(activeSpaceId, 'New Folder', [])}
         onSessions={() => setShowSessions(true)}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode(darkMode === 'light' ? 'dark' : darkMode === 'dark' ? 'auto' : 'light')}
