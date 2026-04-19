@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { Messages } from '@shared/messages.js'
-
+import { urlsMatch } from '@shared/utils.js'
 /**
  * Send a message to the background service worker and return the response.
  * @param {string} type
@@ -27,6 +27,9 @@ function parseState(rawState) {
     tabs:            rawState.tabs           ?? [],
     favorites:       rawState.favorites      ?? [],
     pinnedUrls:      rawState.pinnedUrls     ?? [],
+    favoriteFolders:     rawState.favoriteFolders     ?? [],
+    favoriteFolderState: rawState.favoriteFolderState ?? {},
+    bookmarksFailed:     rawState.bookmarksFailed     ?? false,
     recentlyClosed:  rawState.recentlyClosed ?? [],
     sidebarCollapsed: rawState.sidebarCollapsed ?? false,
     tabAccessOrder:  rawState.tabAccessOrder  ?? [],
@@ -49,9 +52,12 @@ const useStore = create((set, get) => ({
   loading:          true,
   sessions:         [],
   myWindowId:       null,
+  favoriteFolders:     [],
+  favoriteFolderState: {},
+  bookmarksFailed:     false,
 
   setMyWindowId: (id) => set({ myWindowId: id }),
-  
+
   // ── Load ──────────────────────────────────────────────────────────────────
   load: async () => {
     try {
@@ -165,8 +171,12 @@ const useStore = create((set, get) => ({
 
   // ── Favorites ─────────────────────────────────────────────────────────────
   activateFavoriteUrl: (url) => {
-    const { tabs } = get()
-    const existing = tabs.find((t) => t.url === url)
+    const { tabs, myWindowId } = get()
+    // Prefer a match in THIS window; fall back to creating a new one.
+    const inThisWindow = myWindowId != null
+      ? tabs.filter((t) => t.windowId === myWindowId)
+      : tabs
+    const existing = inThisWindow.find((t) => urlsMatch(t.url, url))
     if (existing) {
       chrome.tabs.update(existing.id, { active: true })
       set({ activeTabId: existing.id })
@@ -175,9 +185,10 @@ const useStore = create((set, get) => ({
     }
   },
 
-  addFavorite: async (tab) => {
+  addFavorite: async (tab, parentId) => {
     const state = await sendMessage(Messages.ADD_FAVORITE, {
       url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl,
+      ...(parentId ? { parentId } : {}),
     })
     if (state) set(parseState(state))
   },
@@ -195,6 +206,54 @@ const useStore = create((set, get) => ({
       }).filter(Boolean),
     }))
     await sendMessage(Messages.REORDER_FAVORITES, { ids })
+  },
+
+  renameFavorite: async (id, title) => {
+    const state = await sendMessage(Messages.RENAME_FAVORITE, { id, title })
+    if (state) set(parseState(state))
+  },
+
+  moveFavorite: async (id, parentId, index) => {
+    const state = await sendMessage(Messages.MOVE_FAVORITE, { id, parentId, index })
+    if (state) set(parseState(state))
+  },
+
+  createFavoriteFolder: async (title) => {
+    const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, { title: title || 'New folder' })
+    if (state) set(parseState(state))
+  },
+
+  deleteFavoriteFolder: async (id) => {
+    const state = await sendMessage(Messages.DELETE_FAVORITE_FOLDER, { id })
+    if (state) set(parseState(state))
+  },
+
+  renameFavoriteFolder: async (id, title) => {
+    const state = await sendMessage(Messages.RENAME_FAVORITE_FOLDER, { id, title })
+    if (state) set(parseState(state))
+  },
+
+  toggleFavoriteFolder: async (id) => {
+    // Optimistic local toggle for snappy UI
+    set((s) => ({
+      favoriteFolderState: {
+        ...s.favoriteFolderState,
+        [id]: !s.favoriteFolderState?.[id],
+      },
+    }))
+    const state = await sendMessage(Messages.TOGGLE_FAVORITE_FOLDER, { id })
+    if (state) set(parseState(state))
+  },
+
+  closeFavoriteTab: async (url) => {
+    const { tabs, myWindowId } = get()
+    if (myWindowId == null) return
+    const tabInThisWindow = tabs.find((t) =>
+      t.windowId === myWindowId && urlsMatch(t.url, url)
+    )
+    if (tabInThisWindow) {
+      await chrome.tabs.remove(tabInThisWindow.id)
+    }
   },
 
   // ── Pinned URLs ───────────────────────────────────────────────────────────
