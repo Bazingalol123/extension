@@ -839,3 +839,234 @@ html, body, #root {
 }
 .session-delete-btn:hover { background: rgba(220,38,38,0.08); color: #dc2626; }
 .sessions-empty { padding: 20px 0; text-align: center; color: var(--text-tertiary); font-size: 12.5px; }
+
+
+/* ─── Phase 2b: Favorites rows ────────────────────────────────────────────── */
+
+.favorites-bar.v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 8px 8px;
+}
+
+.favorites-bar.v2 .fav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 4px 6px 2px 6px;
+  letter-spacing: 0.05em;
+}
+
+.favorites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.favorite-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  height: 28px;
+}
+
+.favorite-row:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+}
+
+.favorite-row.is-active {
+  background: color-mix(in srgb, var(--accent-color, #7C6AF7) 10%, transparent);
+}
+
+.favorite-row.is-active:hover {
+  background: color-mix(in srgb, var(--accent-color, #7C6AF7) 16%, transparent);
+}
+
+.favorite-row.in-folder {
+  padding-left: 22px;
+}
+
+.favorite-row .favorite-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.favorite-row .favorite-favicon.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+}
+
+.favorite-row .favorite-title {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-row .favorite-rename-input {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  background: var(--bg-secondary, white);
+  border: 1px solid var(--accent-color, #7C6AF7);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.favorite-row .fav-action-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.favorite-row:hover .fav-action-btn {
+  opacity: 1;
+}
+
+.favorite-row .fav-action-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-primary);
+}
+
+.favorite-row .fav-action-btn.action-minus {
+  opacity: 0.8;  /* active state always shows the - button subtly */
+}
+
+.favorite-row:hover .fav-action-btn.action-minus {
+  opacity: 1;
+}
+
+/* ─── Folders ──── */
+
+.favorite-folder {
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+}
+
+.favorite-folder.drop-target {
+  background: color-mix(in srgb, var(--accent-color, #7C6AF7) 8%, transparent);
+}
+
+.folder-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  height: 26px;
+}
+
+.folder-header:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+}
+
+.folder-chevron {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  transition: transform 0.15s;
+  display: inline-block;
+  width: 12px;
+}
+
+.folder-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.folder-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.folder-name {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-count {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.folder-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 6px;
+}
+
+/* ─── Footer ──── */
+
+.favorites-add-folder-btn {
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 1px dashed var(--border-color, rgba(0, 0, 0, 0.12));
+  background: transparent;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.favorites-add-folder-btn:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.03));
+  color: var(--text-secondary);
+  border-color: var(--text-tertiary);
+}
+
+.favorites-empty {
+  padding: 10px 8px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  text-align: center;
+  font-style: italic;
+}
+
+.bookmarks-warning {
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid #fcd34d;
+}

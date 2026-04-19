@@ -5,7 +5,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import useStore from './store'
 import SpaceSelector from './components/SpaceSelector'
-import FavoritesBar, { FavTile } from './components/FavoritesBar'
+import FavoritesBar, {FavoriteRow} from './components/FavoritesBar.jsx'
 import PinnedUrlsBar, { PinnedTile } from './components/PinnedUrlsBar'
 import TabItem, { SortableTabItem } from './components/TabItem'
 import BottomBar from './components/BottomBar'
@@ -17,12 +17,12 @@ import { Messages } from '@shared/messages.js'
 
 export default function App() {
   const {
-    spaces, activeSpaceId, tabs, favorites, pinnedUrls,
+    spaces, activeSpaceId, tabs, favorites, pinnedUrls, favoriteFolders,
     activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
     myWindowId,
     load, setSidebarCollapsed, switchSpace, activateFavoriteUrl,
     reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
-    setDarkMode,
+    moveFavorite, setDarkMode,
   } = useStore()
 
   const [showNewTabModal, setShowNewTabModal] = useState(false)
@@ -192,6 +192,20 @@ export default function App() {
           if (oi !== -1 && ni !== -1) reorderTabs(arrayMove(sortedLooseTabs, oi, ni).map((t) => t.id))
         }
       } else if (isFav) {
+        // Drag into a folder header/body
+        if (String(over.id).startsWith('fav-folder-')) {
+          const folderId = String(over.id).replace('fav-folder-', '')
+          moveFavorite(active.id, folderId)
+          return
+        }
+        // Drag over another favorite that's inside a folder — move into that folder
+        const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
+        const activeFav = sortedFavorites.find((f) => String(f.id) === String(active.id))
+        if (overFav && activeFav && overFav.parentId !== activeFav.parentId) {
+          moveFavorite(active.id, overFav.parentId)
+          return
+        }
+        // Same-parent reorder (top-level among top-level, or within same folder)
         const oi = sortedFavorites.findIndex((f) => String(f.id) === String(active.id))
         const ni = sortedFavorites.findIndex((f) => String(f.id) === String(over.id))
         if (oi !== -1 && ni !== -1) reorderFavorites(arrayMove(sortedFavorites, oi, ni).map((f) => f.id))
@@ -273,7 +287,7 @@ export default function App() {
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={windowTabs} />}
-        <FavoritesBar favorites={sortedFavorites} accentColor={accentColor} />
+        <FavoritesBar favorites={sortedFavorites} folders={favoriteFolders} accentColor={accentColor} />
 
         <div className="tabs-area" ref={tabsAreaRef}>
           <div className="section">
@@ -293,7 +307,7 @@ export default function App() {
 
         <DragOverlay>
           {activeDragTab && <div style={{ opacity: 0.85, transform: 'scale(1.02)', cursor: 'grabbing' }}><TabItem tab={activeDragTab} isActive={activeDragTab.id === activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} /></div>}
-          {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavTile fav={activeDragFav} isDragging accentColor={accentColor} /></div>}
+          {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavoriteRow fav={activeDragFav} accentColor={accentColor} /></div>}
           {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={windowTabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
         </DragOverlay>
       </DndContext>

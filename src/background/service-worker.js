@@ -13,9 +13,12 @@ import { Messages } from '@shared/messages.js';
 import { urlsMatch } from '@shared/utils.js';
 import {
   ensureBookmarksReady,
-  readFavorites,
+  readFavoritesTree,
   createBookmark,
+  createFolder,
   removeBookmark,
+  removeFolder,
+  updateBookmark,
   moveBookmark,
   setBookmarkChangeCallback,
   getRootId,
