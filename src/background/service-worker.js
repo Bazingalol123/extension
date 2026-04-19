@@ -124,6 +124,23 @@ async function loadState() {
   tabAccessOrder = tabAccessOrder.filter((id) => liveIds.has(id));
   const missing = state.tabs.filter((t) => !tabAccessOrder.includes(t.id)).sort((a,b)=>b.openedAt-a.openedAt).map((t)=>t.id);
   tabAccessOrder = [...missing, ...tabAccessOrder].slice(0, MAX_MRU);
+
+  // Phase 1: backfill windowId on any tabs missing it (pre-Phase-1 state).
+  if (state.tabs.some((t) => t.windowId === undefined || t.windowId === -1)) {
+    try {
+      const liveTabs = await chrome.tabs.query({});
+      const wIdByTabId = new Map(liveTabs.map((t) => [t.id, t.windowId]));
+      state = {
+        ...state,
+        tabs: state.tabs.map((t) =>
+          t.windowId === undefined || t.windowId === -1
+            ? { ...t, windowId: wIdByTabId.get(t.id) ?? -1 }
+            : t
+        ),
+      };
+    } catch (_) { /* non-fatal — syncTabs will retry */ }
+  }
+
   stateReady = true;
   await dbg('loadState:end', { tabCount: state.tabs.length, spaceCount: state.spaces.length });
 }
@@ -150,6 +167,7 @@ function normalizeTab(t) {
     favIconUrl: t.favIconUrl || '', pinned: t.pinned || false,
     spaceId: ex?.spaceId || state.activeSpaceId || state.spaces[0]?.id || '',
     openedAt: ex?.openedAt || Date.now(), muted: t.mutedInfo?.muted || false, suspended: false,
+    windowId: t.windowId ?? ex?.windowId ?? -1,
   };
 }
 
@@ -165,7 +183,12 @@ async function syncTabs() {
   for (const ct of chromeTabs) {
     if (!ct.id) continue;
     const ex = state.tabs.find((t) => t.id === ct.id);
-    if (ex) updateTab(ct.id, { title: ct.title||ex.title, url: ct.url||ex.url, favIconUrl: ct.favIconUrl??ex.favIconUrl, pinned: ct.pinned, muted: ct.mutedInfo?.muted||false });
+    if (ex) updateTab(ct.id, {
+      title: ct.title||ex.title, url: ct.url||ex.url,
+      favIconUrl: ct.favIconUrl||ex.favIconUrl, pinned: ct.pinned,
+      muted: ct.mutedInfo?.muted||false,
+      windowId: ct.windowId ?? ex.windowId ?? -1,
+    });
     else { const n = normalizeTab(ct); if (n) state = { ...state, tabs: [...state.tabs, n] }; }
   }
 }
@@ -273,6 +296,48 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   captureCurrentTab(0).catch(() => {});
   captureCurrentTab(800).catch(() => {});
 });
+
+
+// ─── Phase 1: Multi-Window wiring ─────────────────────────────────────────────
+
+/**
+ * When a tab is attached to a different window (user drags it out to create
+ * a new window, or drops it in another window), update windowId in state.
+ */
+chrome.tabs.onAttached.addListener(async (tabId, { newWindowId }) => {
+  stateReady || (await loadState());
+  const ex = state.tabs.find((t) => t.id === tabId);
+  if (ex && ex.windowId !== newWindowId) {
+    updateTab(tabId, { windowId: newWindowId });
+    await saveState();
+  }
+});
+
+/**
+ * When a new normal browser window opens, set its sidepanel options so the
+ * sidepanel URL carries ?windowId=N. The sidepanel reads this on mount via
+ * location.search and filters tabs to just its own window.
+ *
+ * Popups, devtools, and app windows are skipped.
+ *
+ * We deliberately do NOT run this in a loop at SW startup — any windows that
+ * existed before the SW woke will fall back to chrome.windows.getCurrent()
+ * inside the sidepanel's main.jsx (that fallback works fine).
+ */
+chrome.windows.onCreated.addListener(async (win) => {
+  if (!win?.id || win.type !== 'normal') return;
+  try {
+    await chrome.sidePanel.setOptions({
+      windowId: win.id,
+      path: `sidepanel.html?windowId=${win.id}`,
+      enabled: true,
+    });
+  } catch (_) { /* non-fatal — getCurrent() fallback covers it */ }
+});
+
+
+
+
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 

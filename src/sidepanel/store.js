@@ -35,7 +35,7 @@ function parseState(rawState) {
 }
 
 const useStore = create((set, get) => ({
-  // ── State ──────────────────────────────────────────────────────────────────
+ // ── State ──────────────────────────────────────────────────────────────────
   spaces:           [],
   activeSpaceId:    '',
   tabs:             [],
@@ -48,7 +48,10 @@ const useStore = create((set, get) => ({
   darkMode:         'auto',
   loading:          true,
   sessions:         [],
+  myWindowId:       null,
 
+  setMyWindowId: (id) => set({ myWindowId: id }),
+  
   // ── Load ──────────────────────────────────────────────────────────────────
   load: async () => {
     try {

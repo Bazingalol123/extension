@@ -19,6 +19,7 @@ export default function App() {
   const {
     spaces, activeSpaceId, tabs, favorites, pinnedUrls,
     activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
+    myWindowId,
     load, setSidebarCollapsed, switchSpace, activateFavoriteUrl,
     reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
     setDarkMode,
@@ -119,7 +120,18 @@ export default function App() {
   const activeSpace   = useMemo(() => spaces.find((s) => s.id === activeSpaceId), [spaces, activeSpaceId])
   const accentColor   = activeSpace?.color ?? '#7C6AF7'
 
-  const spaceTabs = useMemo(() => tabs.filter((t) => t.spaceId === activeSpaceId), [tabs, activeSpaceId])
+  // Phase 1: narrow to this sidepanel's window first.
+  // While myWindowId is resolving (briefly on mount), render nothing rather than
+  // leak other-window tabs into this view.
+  const windowTabs = useMemo(
+    () => (myWindowId == null ? [] : tabs.filter((t) => t.windowId === myWindowId)),
+    [tabs, myWindowId]
+  )
+
+  const spaceTabs = useMemo(
+    () => windowTabs.filter((t) => t.spaceId === activeSpaceId),
+    [windowTabs, activeSpaceId]
+  )
 
   const sortedLooseTabs = useMemo(
     () => [...spaceTabs].sort((a, b) => b.openedAt - a.openedAt),
@@ -260,7 +272,7 @@ export default function App() {
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={tabs} />}
+        {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={windowTabs} />}
         <FavoritesBar favorites={sortedFavorites} accentColor={accentColor} />
 
         <div className="tabs-area" ref={tabsAreaRef}>
@@ -282,7 +294,7 @@ export default function App() {
         <DragOverlay>
           {activeDragTab && <div style={{ opacity: 0.85, transform: 'scale(1.02)', cursor: 'grabbing' }}><TabItem tab={activeDragTab} isActive={activeDragTab.id === activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} /></div>}
           {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavTile fav={activeDragFav} isDragging accentColor={accentColor} /></div>}
-          {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={tabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
+          {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={windowTabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
         </DragOverlay>
       </DndContext>
 

@@ -26,6 +26,7 @@
  * @property {string} spaceId - ID of the space this tab belongs to
  * @property {number} openedAt - Timestamp when tab was opened
  * @property {boolean} muted - Whether tab audio is muted
+ * @property {number} [windowId] - Chrome window ID that owns this tab (Phase 1; optional on legacy state, backfilled by syncTabs)
  */
 
 /**

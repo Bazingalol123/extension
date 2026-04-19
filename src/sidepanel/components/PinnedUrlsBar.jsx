@@ -104,7 +104,9 @@ export default function PinnedUrlsBar({ pins, accentColor, tabs }) {
       className={`pinned-urls-bar${isOver ? ' drop-target' : ''}`}
     >
       <SortableContext items={sorted.map((p) => p.id)} strategy={rectSortingStrategy}>
-        {sorted.map((pin) => {
+       {sorted.map((pin) => {
+          // Prefer a match in THIS window; if none here, show it as closed so
+          // clicking opens a new tab in this window rather than jumping to the other window.
           const matchingTab = tabs.find((t) => urlsMatch(t.url, pin.url))
           return (
             <SortablePinnedTile
