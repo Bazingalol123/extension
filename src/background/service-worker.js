@@ -12,6 +12,34 @@
 import { Messages } from '@shared/messages.js';
 import { urlsMatch } from '@shared/utils.js';
 
+// ─── DIAGNOSTIC LOGGING ──────────────────────────────────────────────────────
+// Writes persistent log entries to chrome.storage.local.arcDebugLog.
+// Ring buffer of last 200 entries. Survives SW restarts and Brave exits.
+// Remove when crash is fixed.
+const _dbgStart = Date.now();
+async function dbg(tag, data) {
+  try {
+    const entry = {
+      t: Date.now() - _dbgStart,
+      abs: new Date().toISOString(),
+      tag,
+      data: data === undefined ? null : (() => {
+        try { return JSON.parse(JSON.stringify(data)); } catch { return String(data); }
+      })(),
+    };
+    const stored = await chrome.storage.local.get('arcDebugLog');
+    const log = Array.isArray(stored.arcDebugLog) ? stored.arcDebugLog : [];
+    log.push(entry);
+    if (log.length > 200) log.splice(0, log.length - 200);
+    await chrome.storage.local.set({ arcDebugLog: log });
+  } catch (e) {
+    // swallow — never let logging break anything
+  }
+}
+
+// SW top-level marker — fires every time SW starts
+dbg('SW_START', { ts: Date.now() });
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SPACE_COLORS  = ['#8B7CF6','#F87171','#34D399','#FBBF24','#60A5FA','#F472B6','#A78BFA','#FB923C'];
@@ -56,7 +84,7 @@ async function captureCurrentTab(delay = 0) {
 
 let state = {
   spaces: [], activeSpaceId: '', tabs: [], favorites: [],
-  pinnedUrls: [], folders: [], recentlyClosed: [],
+  pinnedUrls: [], recentlyClosed: [],
   sidebarCollapsed: false, darkMode: 'auto',
 };
 let stateReady     = false;
@@ -65,6 +93,7 @@ let tabAccessOrder = [];
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
 async function loadState() {
+  await dbg('loadState:begin');
   const stored = await chrome.storage.local.get('arcState');
   if (stored.arcState?.spaces?.length > 0) {
     const saved = stored.arcState;
@@ -81,10 +110,10 @@ async function loadState() {
       return rest;
     });
     state = {
-      favorites:[], pinnedUrls:[], folders:[], recentlyClosed:[],
+      favorites:[], pinnedUrls:[], recentlyClosed:[],
       sidebarCollapsed:false, darkMode:'auto',
-      ...saved, spaces: migratedSpaces, pinnedUrls: globalPins,
-      folders: saved.folders || [], recentlyClosed: saved.recentlyClosed || [],
+      ...saved, spaces: migratedSpaces, pinnedUrls: globalPins
+       || [], recentlyClosed: saved.recentlyClosed || [],
     };
     tabAccessOrder = saved.tabAccessOrder || [];
   } else {
@@ -96,7 +125,9 @@ async function loadState() {
   const missing = state.tabs.filter((t) => !tabAccessOrder.includes(t.id)).sort((a,b)=>b.openedAt-a.openedAt).map((t)=>t.id);
   tabAccessOrder = [...missing, ...tabAccessOrder].slice(0, MAX_MRU);
   stateReady = true;
+  await dbg('loadState:end', { tabCount: state.tabs.length, spaceCount: state.spaces.length });
 }
+
 
 async function saveState() {
   await chrome.storage.local.set({ arcState: { ...state, tabAccessOrder } });
@@ -131,7 +162,6 @@ async function syncTabs() {
   const liveIds = new Set(chromeTabs.map((t) => t.id).filter(Boolean));
   state = { ...state, tabs: state.tabs.filter((t) => liveIds.has(t.id)) };
   tabAccessOrder = tabAccessOrder.filter((id) => liveIds.has(id));
-  state = { ...state, folders: state.folders.map((f) => ({ ...f, tabIds: f.tabIds.filter((id) => liveIds.has(id)) })).filter((f) => f.tabIds.length > 0) };
   for (const ct of chromeTabs) {
     if (!ct.id) continue;
     const ex = state.tabs.find((t) => t.id === ct.id);
@@ -145,13 +175,50 @@ async function syncTabs() {
 chrome.tabs.onCreated.addListener(async (tab) => {
   stateReady || (await loadState());
   const url = tab.pendingUrl || tab.url || '';
-  if (url === 'chrome://newtab/' || url === 'chrome://new-tab-page/' || url === 'brave://newtab/' || url === chrome.runtime.getURL('newtab/index.html')) {
-    try {
-      if (tab.id) await chrome.tabs.remove(tab.id);
-      openNewTabModalPopup();
-      return;
-    } catch (_) {}
-  }
+  
+    if (url === 'chrome://newtab/' || url === 'chrome://new-tab-page/' || url === 'brave://newtab/' || url === chrome.runtime.getURL('newtab/index.html')) {
+        try {
+        const msSinceSwStart = Date.now() - _dbgStart;
+        const tabsInWindow = await chrome.tabs.query({ windowId: tab.windowId });
+        const allTabs = await chrome.tabs.query({});
+        const allWindows = await chrome.windows.getAll({ populate: false });
+        await dbg('newtab:intercept-check', {
+            msSinceSwStart,
+            thisTabId: tab.id,
+            thisTabWindowId: tab.windowId,
+            tabsInWindowCount: tabsInWindow.length,
+            tabsInWindow: tabsInWindow.map(t => ({ id: t.id, url: t.url, pendingUrl: t.pendingUrl, windowId: t.windowId })),
+            allTabsCount: allTabs.length,
+            allTabs: allTabs.map(t => ({ id: t.id, url: t.url, windowId: t.windowId })),
+            allWindowsCount: allWindows.length,
+            allWindows: allWindows.map(w => ({ id: w.id, type: w.type, state: w.state })),
+        });
+
+        // NEW GUARD — multiple conditions must all pass:
+        // 1. SW has been alive for > 2 seconds (not cold start)
+        // 2. This window has more than 1 tab
+        // 3. There are other non-newtab tabs in this window
+        const isStartup = msSinceSwStart < 2000;
+        const hasOtherRealTabs = tabsInWindow.some(t =>
+            t.id !== tab.id &&
+            t.url &&
+            !t.url.startsWith('chrome://newtab') &&
+            !t.url.startsWith('brave://newtab')
+        );
+
+        if (!isStartup && hasOtherRealTabs) {
+            await dbg('newtab:intercepting', { tabId: tab.id });
+            if (tab.id) await chrome.tabs.remove(tab.id);
+            openNewTabModalPopup();
+            return;
+        } else {
+            await dbg('newtab:skipping', { reason: isStartup ? 'startup-grace' : 'no-other-real-tabs' });
+        }
+        } catch (e) {
+        await dbg('newtab:error', { msg: String(e) });
+        }
+    }
+  
   const n = normalizeTab(tab);
   if (n) { state = { ...state, tabs: [...state.tabs.filter((t) => t.id !== tab.id), n] }; await saveState(); }
 });
@@ -188,7 +255,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   // ── Memory leak prevention: delete screenshot when tab closes ──
   tabScreenshots.delete(tabId);
 
-  state = { ...state, folders: state.folders.map((f) => ({ ...f, tabIds: f.tabIds.filter((id) => id !== tabId) })).filter((f) => f.tabIds.length > 0) };
   await saveState();
 });
 
@@ -306,7 +372,7 @@ async function handleMessage(message) {
       const rem=state.spaces.filter((s)=>s.id!==message.spaceId);
       const nA=state.activeSpaceId===message.spaceId?rem[0].id:state.activeSpaceId;
       await Promise.all(state.tabs.filter((t)=>t.spaceId===message.spaceId).map((t)=>chrome.tabs.remove(t.id).catch(()=>{})));
-      state={...state,spaces:rem,activeSpaceId:nA,tabs:state.tabs.filter((t)=>t.spaceId!==message.spaceId),folders:state.folders.filter((f)=>f.spaceId!==message.spaceId)};
+      state={...state,spaces:rem,activeSpaceId:nA,tabs:state.tabs.filter((t)=>t.spaceId!==message.spaceId)};
       await saveState(); return state;
     }
 
@@ -326,7 +392,7 @@ async function handleMessage(message) {
     case Messages.DUPLICATE_TAB: { await chrome.tabs.duplicate(message.tabId).catch(()=>{}); return null; }
     case Messages.CREATE_TAB_WITH_URL: { await chrome.tabs.create({url:/^https?:\/\//i.test(message.url)?message.url:`https://${message.url}`}); return null; }
     case Messages.MUTE_TAB: { const t=state.tabs.find((t)=>t.id===message.tabId); if(t){await chrome.tabs.update(message.tabId,{muted:!t.muted}).catch(()=>{}); updateTab(message.tabId,{muted:!t.muted}); await saveState();} return state; }
-    case Messages.MOVE_TAB_TO_SPACE: { updateTab(message.tabId,{spaceId:message.spaceId}); state={...state,folders:state.folders.map((f)=>({...f,tabIds:f.tabIds.filter((id)=>id!==message.tabId)})).filter((f)=>f.tabIds.length>0)}; await saveState(); return state; }
+    case Messages.MOVE_TAB_TO_SPACE: { updateTab(message.tabId,{spaceId:message.spaceId}); await saveState(); return state; }
     case Messages.REORDER_TABS: { const now=Date.now(); state={...state,tabs:state.tabs.map((t)=>{const i=message.tabIds.indexOf(t.id);return i===-1?t:{...t,openedAt:now-i};})}; await saveState(); return state; }
     case Messages.SUSPEND_TAB: { await chrome.tabs.discard(message.tabId).catch(()=>{}); updateTab(message.tabId,{suspended:true}); await saveState(); return state; }
     case Messages.SUSPEND_SPACE: { const[at]=await chrome.tabs.query({active:true,currentWindow:true}); await Promise.all(state.tabs.filter((t)=>t.spaceId===message.spaceId&&t.id!==at?.id&&!isInternal(t.url)).map((t)=>chrome.tabs.discard(t.id).then(()=>updateTab(t.id,{suspended:true})).catch(()=>{}))); await saveState(); return state; }
@@ -345,13 +411,13 @@ async function handleMessage(message) {
 
     // ── Folders ───────────────────────────────────────────────────────────────
 
-    case Messages.CREATE_FOLDER: { const f={id:crypto.randomUUID(),name:message.name||'New Folder',tabIds:message.tabIds||[],collapsed:false,spaceId:message.spaceId||state.activeSpaceId,order:state.folders.filter((f)=>f.spaceId===(message.spaceId||state.activeSpaceId)).length}; state={...state,folders:[...state.folders,f]}; await saveState(); return state; }
-    case Messages.DELETE_FOLDER: { state={...state,folders:state.folders.filter((f)=>f.id!==message.folderId)}; await saveState(); return state; }
-    case Messages.RENAME_FOLDER: { state={...state,folders:state.folders.map((f)=>f.id===message.folderId?{...f,name:message.name}:f)}; await saveState(); return state; }
-    case Messages.TOGGLE_FOLDER: { state={...state,folders:state.folders.map((f)=>f.id===message.folderId?{...f,collapsed:!f.collapsed}:f)}; await saveState(); return state; }
-    case Messages.MOVE_TAB_TO_FOLDER: { let f=state.folders.map((fl)=>({...fl,tabIds:fl.tabIds.filter((id)=>id!==message.tabId)})); f=f.map((fl)=>fl.id===message.folderId?{...fl,tabIds:[...fl.tabIds,message.tabId]}:fl).filter((fl)=>fl.tabIds.length>0); state={...state,folders:f}; await saveState(); return state; }
-    case Messages.REMOVE_TAB_FROM_FOLDER: { state={...state,folders:state.folders.map((f)=>({...f,tabIds:f.tabIds.filter((id)=>id!==message.tabId)})).filter((f)=>f.tabIds.length>0)}; await saveState(); return state; }
-    case Messages.REORDER_FOLDERS: { if(Array.isArray(message.folderOrders))state={...state,folders:state.folders.map((f)=>{if(f.spaceId!==message.spaceId)return f;const i=message.folderOrders.indexOf(f.id);return i!==-1?{...f,order:i}:f;})}; await saveState(); return state; }
+    // case Messages.CREATE_FOLDER: { const f={id:crypto.randomUUID(),name:message.name||'New Folder',tabIds:message.tabIds||[],collapsed:false,spaceId:message.spaceId||state.activeSpaceId,order:state.folders.filter((f)=>f.spaceId===(message.spaceId||state.activeSpaceId)).length}; state={...state,folders:[...state.folders,f]}; await saveState(); return state; }
+    // case Messages.DELETE_FOLDER: { state={...state,folders:state.folders.filter((f)=>f.id!==message.folderId)}; await saveState(); return state; }
+    // case Messages.RENAME_FOLDER: { state={...state,folders:state.folders.map((f)=>f.id===message.folderId?{...f,name:message.name}:f)}; await saveState(); return state; }
+    // case Messages.TOGGLE_FOLDER: { state={...state,folders:state.folders.map((f)=>f.id===message.folderId?{...f,collapsed:!f.collapsed}:f)}; await saveState(); return state; }
+    // case Messages.MOVE_TAB_TO_FOLDER: { let f=state.folders.map((fl)=>({...fl,tabIds:fl.tabIds.filter((id)=>id!==message.tabId)})); f=f.map((fl)=>fl.id===message.folderId?{...fl,tabIds:[...fl.tabIds,message.tabId]}:fl).filter((fl)=>fl.tabIds.length>0); state={...state,folders:f}; await saveState(); return state; }
+    // case Messages.REMOVE_TAB_FROM_FOLDER: { state={...state,folders:state.folders.map((f)=>({...f,tabIds:f.tabIds.filter((id)=>id!==message.tabId)})).filter((f)=>f.tabIds.length>0)}; await saveState(); return state; }
+    // case Messages.REORDER_FOLDERS: { if(Array.isArray(message.folderOrders))state={...state,folders:state.folders.map((f)=>{if(f.spaceId!==message.spaceId)return f;const i=message.folderOrders.indexOf(f.id);return i!==-1?{...f,order:i}:f;})}; await saveState(); return state; }
 
     // ── Recently closed ───────────────────────────────────────────────────────
 

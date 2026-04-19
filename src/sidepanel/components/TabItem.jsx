@@ -8,15 +8,14 @@ import { getFaviconSrc, getFaviconFallback } from '@shared/utils.js'
  * Individual tab row with favicon, title, close button, and context menu.
  * Right-click opens context menu.
  */
-export default function TabItem({ tab, isActive, accentColor, spaces, folderId, spaceFolders, activeSpaceId, isDuplicate }) {
+export default function TabItem({ tab, isActive, accentColor, spaces, activeSpaceId, isDuplicate }) {
   const {
     activateTab, closeTab, moveTabToSpace, duplicateTab,
-    muteTab, addFavorite, pinUrl, createFolder, moveTabToFolder,
-    removeTabFromFolder, suspendTab,
+    muteTab, addFavorite, pinUrl, suspendTab,
   } = useStore()
 
   const [imgError, setImgError] = useState(false)
-  const [ctxMenu, setCtxMenu]   = useState(null) // { x, y, showMove, showFolderMove }
+  const [ctxMenu, setCtxMenu]   = useState(null) // { x, y, showMove }
   const ctxRef = useRef(null)
 
   const favicon  = getFaviconSrc(tab.favIconUrl)
@@ -43,7 +42,7 @@ export default function TabItem({ tab, isActive, accentColor, spaces, folderId, 
     const MENU_H = 300 // generous estimate including submenus
     const x = Math.min(e.clientX, window.innerWidth  - MENU_W - 8)
     const y = Math.min(e.clientY, window.innerHeight - MENU_H - 8)
-    setCtxMenu({ x, y, showMove: false, showFolderMove: false })
+    setCtxMenu({ x, y, showMove: false })
   }
 
   return (
@@ -125,24 +124,7 @@ export default function TabItem({ tab, isActive, accentColor, spaces, folderId, 
                 </div>
               ))}
             </>
-          ) : ctxMenu.showFolderMove ? (
-            <>
-              <div className="context-item" onClick={() => setCtxMenu((m) => ({ ...m, showFolderMove: false }))}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <polyline points="15 18 9 12 15 6"/>
-                </svg>
-                Back
-              </div>
-              <div className="context-separator" />
-              {spaceFolders.map((f) => (
-                <div key={f.id} className="submenu-space-item"
-                  onClick={() => { moveTabToFolder(tab.id, f.id); setCtxMenu(null) }}>
-                  <span>📁</span>
-                  <span style={{ color: 'var(--text-primary)', fontSize: 12.5 }}>{f.name}</span>
-                </div>
-              ))}
-            </>
-          ) : (
+          ) :  (
             <>
               <div className="context-item" onClick={() => { duplicateTab(tab.id); setCtxMenu(null) }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -191,29 +173,6 @@ export default function TabItem({ tab, isActive, accentColor, spaces, folderId, 
                 </div>
               )}
 
-              <div className="context-separator" />
-
-              <div className="context-item" onClick={() => { createFolder(activeSpaceId || tab.spaceId, 'New Folder', [tab.id]); setCtxMenu(null) }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                </svg>
-                Create Folder
-              </div>
-
-              {spaceFolders && spaceFolders.length > 0 && (
-                <div className="context-item" onClick={() => setCtxMenu((m) => ({ ...m, showFolderMove: true }))}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                  Move to Folder ›
-                </div>
-              )}
-
-              {folderId && (
-                <div className="context-item" onClick={() => { removeTabFromFolder(tab.id); setCtxMenu(null) }}>
-                  Remove from Folder
-                </div>
-              )}
 
               <div className="context-separator" />
 

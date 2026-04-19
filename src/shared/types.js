@@ -36,15 +36,15 @@
  * @property {string} favIcon - Favicon URL
  */
 
-/**
- * @typedef {Object} Folder
- * @property {string} id - Unique folder ID
- * @property {string} name - Folder display name
- * @property {string} spaceId - Which space this folder belongs to
- * @property {number[]} tabIds - Ordered array of tab IDs in this folder
- * @property {boolean} collapsed - Whether the folder is collapsed
- * @property {number} order - Sort order among tabs/folders in the space
- */
+// /**
+//  * @typedef {Object} Folder
+//  * @property {string} id - Unique folder ID
+//  * @property {string} name - Folder display name
+//  * @property {string} spaceId - Which space this folder belongs to
+//  * @property {number[]} tabIds - Ordered array of tab IDs in this folder
+//  * @property {boolean} collapsed - Whether the folder is collapsed
+//  * @property {number} order - Sort order among tabs/folders in the space
+//  */
 
 /**
  * @typedef {Object} ArcState
@@ -53,7 +53,6 @@
  * @property {Tab[]} tabs - All tracked tabs
  * @property {Favorite[]} favorites - Global favorites
  * @property {PinnedUrl[]} pinnedUrls - Global pinned URLs (across all spaces)
- * @property {Folder[]} folders - Collapsible tab folders
  * @property {boolean} sidebarCollapsed - Whether sidebar is collapsed to icon rail
  */
 

@@ -27,7 +27,6 @@ function parseState(rawState) {
     tabs:            rawState.tabs           ?? [],
     favorites:       rawState.favorites      ?? [],
     pinnedUrls:      rawState.pinnedUrls     ?? [],
-    folders:         rawState.folders        ?? [],
     recentlyClosed:  rawState.recentlyClosed ?? [],
     sidebarCollapsed: rawState.sidebarCollapsed ?? false,
     tabAccessOrder:  rawState.tabAccessOrder  ?? [],
@@ -42,7 +41,6 @@ const useStore = create((set, get) => ({
   tabs:             [],
   favorites:        [],
   pinnedUrls:       [],
-  folders:          [],
   recentlyClosed:   [],
   sidebarCollapsed: false,
   tabAccessOrder:   [],
@@ -219,44 +217,7 @@ const useStore = create((set, get) => ({
     await sendMessage(Messages.REORDER_PINS, { ids })
   },
 
-  // ── Folders ───────────────────────────────────────────────────────────────
-  createFolder: async (spaceId, name, tabIds) => {
-    const state = await sendMessage(Messages.CREATE_FOLDER, { spaceId, name, tabIds })
-    if (state) set(parseState(state))
-  },
-
-  deleteFolder: async (folderId) => {
-    const state = await sendMessage(Messages.DELETE_FOLDER, { folderId })
-    if (state) set(parseState(state))
-  },
-
-  renameFolder: async (folderId, name) => {
-    const state = await sendMessage(Messages.RENAME_FOLDER, { folderId, name })
-    if (state) set(parseState(state))
-  },
-
-  toggleFolder: async (folderId) => {
-    set((s) => ({
-      folders: s.folders.map((f) =>
-        f.id === folderId ? { ...f, collapsed: !f.collapsed } : f
-      ),
-    }))
-    await sendMessage(Messages.TOGGLE_FOLDER, { folderId })
-  },
-
-  moveTabToFolder: async (tabId, folderId) => {
-    const state = await sendMessage(Messages.MOVE_TAB_TO_FOLDER, { tabId, folderId })
-    if (state) set(parseState(state))
-  },
-
-  removeTabFromFolder: async (tabId) => {
-    const state = await sendMessage(Messages.REMOVE_TAB_FROM_FOLDER, { tabId })
-    if (state) set(parseState(state))
-  },
-
-  reorderFolders: async (spaceId, folderOrders) => {
-    await sendMessage(Messages.REORDER_FOLDERS, { spaceId, folderOrders })
-  },
+ 
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
   setSidebarCollapsed: async (collapsed) => {
