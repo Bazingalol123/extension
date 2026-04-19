@@ -11,6 +11,16 @@
 
 import { Messages } from '@shared/messages.js';
 import { urlsMatch } from '@shared/utils.js';
+import {
+  ensureBookmarksReady,
+  readFavorites,
+  createBookmark,
+  removeBookmark,
+  moveBookmark,
+  setBookmarkChangeCallback,
+  getRootId,
+  cacheFavicon,
+} from '@shared/bookmarksAdapter.js';
 
 // ─── DIAGNOSTIC LOGGING ──────────────────────────────────────────────────────
 // Writes persistent log entries to chrome.storage.local.arcDebugLog.
@@ -86,6 +96,12 @@ let state = {
   spaces: [], activeSpaceId: '', tabs: [], favorites: [],
   pinnedUrls: [], recentlyClosed: [],
   sidebarCollapsed: false, darkMode: 'auto',
+  // Phase 2b-A: bookmarks-backed favorites
+  favoritesRootId:   null,   // bookmark folder id
+  favoritesMigrated: false,  // one-shot migration flag
+  bookmarksFailed:   false,  // true if init fails; UI shows warning
+  faviconCache:      {},     // url → favIconUrl
+  faviconCacheKeys:  [],     // LRU order
 };
 let stateReady     = false;
 let tabAccessOrder = [];
@@ -144,6 +160,81 @@ async function loadState() {
   stateReady = true;
   await dbg('loadState:end', { tabCount: state.tabs.length, spaceCount: state.spaces.length });
 }
+
+// ─── Phase 2b: Lazy bookmarks init ───────────────────────────────────────────
+
+let _bookmarksInitPromise = null;
+
+/**
+ * Ensure bookmarks subsystem is ready. Idempotent.
+ * Called from GET_STATE handler and from every bookmark-mutating operation.
+ * On failure, sets state.bookmarksFailed and returns false; caller uses
+ * existing in-memory state as read-only fallback.
+ */
+async function ensureBookmarksInitialized() {
+  if (state.favoritesRootId && getRootId() === state.favoritesRootId) return true;
+  if (state.bookmarksFailed) return false;
+  if (_bookmarksInitPromise) return _bookmarksInitPromise;
+
+  _bookmarksInitPromise = (async () => {
+    try {
+      const result = await ensureBookmarksReady(state.favoritesRootId);
+      if (!result.ok) {
+        state = { ...state, bookmarksFailed: true };
+        await saveState();
+        return false;
+      }
+
+      state = { ...state, favoritesRootId: result.rootId, bookmarksFailed: false };
+
+      if (!state.faviconCache || typeof state.faviconCache !== 'object' || Array.isArray(state.faviconCache)) {
+        state.faviconCache = {};
+      }
+      if (!Array.isArray(state.faviconCacheKeys)) state.faviconCacheKeys = [];
+      if (!state.favoriteFolderState || typeof state.favoriteFolderState !== 'object') {
+        state.favoriteFolderState = {};
+      }
+
+      // One-shot migration: MOVE legacy favorites into bookmarks
+      if (!state.favoritesMigrated && Array.isArray(state.favorites) && state.favorites.length > 0) {
+        const existingChildren = await chrome.bookmarks.getChildren(state.favoritesRootId).catch(() => []);
+        const existingUrls = new Set(existingChildren.filter((c) => c.url).map((c) => c.url));
+        for (const fav of state.favorites) {
+          if (!fav.url || existingUrls.has(fav.url)) continue;
+          const created = await createBookmark(fav.url, fav.title || '');
+          if (created && fav.favIconUrl) {
+            cacheFavicon(state.faviconCache, state.faviconCacheKeys, fav.url, fav.favIconUrl);
+          }
+        }
+        state = { ...state, favorites: [], favoritesMigrated: true };
+      }
+
+      setBookmarkChangeCallback(rebuildFavoritesFromBookmarks);
+      await rebuildFavoritesFromBookmarks();
+      return true;
+    } catch (e) {
+      console.warn('Arc: bookmarks init failed:', e);
+      state = { ...state, bookmarksFailed: true };
+      await saveState();
+      return false;
+    } finally {
+      _bookmarksInitPromise = null;
+    }
+  })();
+
+  return _bookmarksInitPromise;
+}
+
+async function rebuildFavoritesFromBookmarks() {
+  if (!state.favoritesRootId) return;
+  const { favorites, folders } = await readFavoritesTree(state.faviconCache);
+  state = { ...state, favorites, favoriteFolders: folders };
+  await saveState();
+}
+
+
+
+
 
 
 async function saveState() {
@@ -257,7 +348,22 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'loading') ch.suspended = false;
     if (Object.keys(ch).length) updateTab(tabId, ch);
     if (changeInfo.favIconUrl || changeInfo.title) {
-      state = { ...state, pinnedUrls: state.pinnedUrls.map((p) => urlsMatch(p.url, tab.url||'') ? { ...p, favIconUrl: changeInfo.favIconUrl||p.favIconUrl, title: changeInfo.title||p.title } : p) };
+      state = { ...state, pinnedUrls: state.pinnedUrls.map((p) => urlsMatch(p.url, tab.url||'') ?
+    { ...p, favIconUrl: changeInfo.favIconUrl||p.favIconUrl, title: changeInfo.title||p.title } : p) };
+
+      // Phase 2b: cache favicon for any matching favorite (bookmarks API has no favicons)
+      if (changeInfo.favIconUrl && tab.url && state.favorites.length > 0) {
+        const matchingFav = state.favorites.find((f) => urlsMatch(f.url, tab.url));
+        if (matchingFav) {
+          cacheFavicon(state.faviconCache, state.faviconCacheKeys, matchingFav.url, changeInfo.favIconUrl);
+          state = {
+            ...state,
+            favorites: state.favorites.map((f) =>
+              urlsMatch(f.url, tab.url) ? { ...f, favIconUrl: changeInfo.favIconUrl } : f
+            ),
+          };
+        }
+      }
     }
   } else {
     const n = normalizeTab(tab);
@@ -417,7 +523,12 @@ async function handleMessage(message) {
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    case Messages.GET_STATE: { await syncTabs(); await saveState(); return { ...state, tabAccessOrder }; }
+    case Messages.GET_STATE: {
+      // Kick off bookmarks init without blocking. Sidepanel receives favorites
+      // via a STATE_UPDATED broadcast once init completes.
+      ensureBookmarksInitialized().catch(() => {});
+      return state;
+    }
     case Messages.GET_SETTINGS: { const s = await chrome.storage.local.get('arcSettings'); return s.arcSettings || { searchEngine:'brave', darkMode:'auto', suspendAfterMinutes:0 }; }
     case Messages.UPDATE_SETTINGS: { const c=(await chrome.storage.local.get('arcSettings')).arcSettings||{}; const u={...c,...message.settings}; await chrome.storage.local.set({arcSettings:u}); if(message.settings.darkMode!==undefined){state={...state,darkMode:message.settings.darkMode};await saveState();} return u; }
     case Messages.SET_DARK_MODE: { state={...state,darkMode:message.darkMode}; await saveState(); return state; }
@@ -462,12 +573,93 @@ async function handleMessage(message) {
     case Messages.SUSPEND_TAB: { await chrome.tabs.discard(message.tabId).catch(()=>{}); updateTab(message.tabId,{suspended:true}); await saveState(); return state; }
     case Messages.SUSPEND_SPACE: { const[at]=await chrome.tabs.query({active:true,currentWindow:true}); await Promise.all(state.tabs.filter((t)=>t.spaceId===message.spaceId&&t.id!==at?.id&&!isInternal(t.url)).map((t)=>chrome.tabs.discard(t.id).then(()=>updateTab(t.id,{suspended:true})).catch(()=>{}))); await saveState(); return state; }
 
-    // ── Favorites ─────────────────────────────────────────────────────────────
+   // ── Favorites (bookmarks-backed, Phase 2b) ────────────────────────────────
 
-    case Messages.ADD_FAVORITE: { if(state.favorites.find((f)=>urlsMatch(f.url,message.url)))return state; state={...state,favorites:[...state.favorites,{id:crypto.randomUUID(),url:message.url,title:message.title||'',favIconUrl:message.favIconUrl||'',order:state.favorites.length}]}; await saveState(); return state; }
-    case Messages.REMOVE_FAVORITE: { state={...state,favorites:state.favorites.filter((f)=>f.id!==message.id)}; await saveState(); return state; }
-    case Messages.REORDER_FAVORITES: { state={...state,favorites:message.ids.map((id,i)=>{const f=state.favorites.find((f)=>f.id===id);return f?{...f,order:i}:null;}).filter(Boolean)}; await saveState(); return state; }
+    case Messages.ADD_FAVORITE: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      if (state.favorites.find((f) => urlsMatch(f.url, message.url))) return state;
+      const created = await createBookmark(message.url, message.title || '', message.parentId);
+      if (created && message.favIconUrl) {
+        cacheFavicon(state.faviconCache, state.faviconCacheKeys, message.url, message.favIconUrl);
+      }
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
 
+    case Messages.REMOVE_FAVORITE: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await removeBookmark(message.id);
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.REORDER_FAVORITES: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      for (let i = 0; i < message.ids.length; i++) {
+        await moveBookmark(message.ids[i], { index: i });
+      }
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.RENAME_FAVORITE: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await updateBookmark(message.id, { title: message.title });
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.MOVE_FAVORITE: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await moveBookmark(message.id, { parentId: message.parentId, index: message.index });
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.CREATE_FAVORITE_FOLDER: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await createFolder(message.title || 'New folder');
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.DELETE_FAVORITE_FOLDER: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await removeFolder(message.id);
+      if (state.favoriteFolderState[message.id] !== undefined) {
+        const { [message.id]: _, ...rest } = state.favoriteFolderState;
+        state = { ...state, favoriteFolderState: rest };
+      }
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.RENAME_FAVORITE_FOLDER: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await updateBookmark(message.id, { title: message.title });
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.TOGGLE_FAVORITE_FOLDER: {
+      state = {
+        ...state,
+        favoriteFolderState: {
+          ...state.favoriteFolderState,
+          [message.id]: !state.favoriteFolderState?.[message.id],
+        },
+      };
+      await saveState();
+      return state;
+    }
     // ── Pins ──────────────────────────────────────────────────────────────────
 
     case Messages.PIN_URL: { if(state.pinnedUrls.find((p)=>urlsMatch(p.url,message.url)))return state; state={...state,pinnedUrls:[...state.pinnedUrls,{id:crypto.randomUUID(),url:message.url,title:message.title||'',favIconUrl:message.favIconUrl||'',order:state.pinnedUrls.length}]}; await saveState(); return state; }

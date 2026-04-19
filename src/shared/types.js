@@ -31,11 +31,23 @@
 
 /**
  * @typedef {Object} Favorite
- * @property {string} id - Unique favorite identifier
+ * @property {string} id - Bookmark node id (from chrome.bookmarks)
  * @property {string} url - Favorite URL
- * @property {string} title - Display title
- * @property {string} favIcon - Favicon URL
+ * @property {string} title - Display title (editable via rename)
+ * @property {string} parentId - Parent bookmark folder id
+ * @property {number} order - Index within parent folder
+ * @property {string} favIconUrl - Favicon (from faviconCache; bookmarks API has no favicons)
  */
+
+/**
+ * @typedef {Object} FavoriteFolder
+ * @property {string} id - Bookmark folder node id
+ * @property {string} title - Folder title
+ * @property {string} parentId - Always the favorites root
+ * @property {number} order - Index within parent
+ */
+
+
 
 // /**
 //  * @typedef {Object} Folder
@@ -55,6 +67,8 @@
  * @property {Favorite[]} favorites - Global favorites
  * @property {PinnedUrl[]} pinnedUrls - Global pinned URLs (across all spaces)
  * @property {boolean} sidebarCollapsed - Whether sidebar is collapsed to icon rail
+ * @property {FavoriteFolder[]} favoriteFolders - Top-level folders under "My Favorites"
+ * @property {Object<string,boolean>} favoriteFolderState - folderId → collapsed flag
  */
 
 // This file is documentation-only. No runtime exports needed.
