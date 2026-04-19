@@ -71,5 +71,18 @@
  * @property {Object<string,boolean>} favoriteFolderState - folderId → collapsed flag
  */
 
+/**
+ * @typedef {Object} FavoriteOwnership
+ * @property {string} favId - Bookmark id of the favorite
+ * @property {number} windowId - Window owning the tab
+ * @property {number} tabId - Chrome tab id
+ * @property {boolean} drifted - True if owned tab's URL differs from favorite's URL
+ * @property {number} boundAt - Timestamp when ownership was bound
+ * @property {FavoriteOwnership[]} favoriteOwnerships - Active favorite→tab bindings
+ * @property {number} lastShutdownTime - Timestamp of last Brave shutdown (for idle expiration)
+ */
+
+
+
 // This file is documentation-only. No runtime exports needed.
 // Import types in JSDoc with: /** @type {import('./types').ArcState} */

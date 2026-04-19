@@ -105,6 +105,8 @@ let state = {
   bookmarksFailed:   false,  // true if init fails; UI shows warning
   faviconCache:      {},     // url → favIconUrl
   faviconCacheKeys:  [],     // LRU order
+  favoriteOwnerships:  [],    // FavoriteOwnership[]
+  lastShutdownTime:    0,
 };
 let stateReady     = false;
 let tabAccessOrder = [];
@@ -161,6 +163,8 @@ async function loadState() {
   }
 
   stateReady = true;
+  // Phase 3: reconcile ownerships on SW boot (idle expiration + dead tab pruning)
+  await reconcileOwnershipsOnStartup();
   await dbg('loadState:end', { tabCount: state.tabs.length, spaceCount: state.spaces.length });
 }
 
@@ -174,6 +178,83 @@ let _bookmarksInitPromise = null;
  * On failure, sets state.bookmarksFailed and returns false; caller uses
  * existing in-memory state as read-only fallback.
  */
+
+
+// ─── Phase 3: Favorite ownership ─────────────────────────────────────────────
+
+/**
+ * Find an ownership entry for {favId, windowId}, or null.
+ */
+function findOwnership(favId, windowId) {
+  return state.favoriteOwnerships.find(o => o.favId === favId && o.windowId === windowId) || null;
+}
+
+/**
+ * Find the ownership entry that owns a given tab id, or null.
+ */
+function findOwnershipByTab(tabId) {
+  return state.favoriteOwnerships.find(o => o.tabId === tabId) || null;
+}
+
+/**
+ * Bind a favorite to a tab in a window.
+ */
+function bindOwnership(favId, windowId, tabId) {
+  // Remove any prior binding for this {favId, windowId}
+  const filtered = state.favoriteOwnerships.filter(o => !(o.favId === favId && o.windowId === windowId));
+  state = { ...state, favoriteOwnerships: [...filtered, { favId, windowId, tabId, drifted: false, boundAt: Date.now() }] };
+}
+
+/**
+ * Release a binding.
+ */
+function releaseOwnership(favId, windowId) {
+  state = { ...state, favoriteOwnerships: state.favoriteOwnerships.filter(o => !(o.favId === favId && o.windowId === windowId)) };
+}
+
+/**
+ * Release ownership by tab id (used when Brave closes a tab).
+ */
+function releaseOwnershipByTab(tabId) {
+  state = { ...state, favoriteOwnerships: state.favoriteOwnerships.filter(o => o.tabId !== tabId) };
+}
+
+/**
+ * Run on SW startup — check idle expiration and clean up dead tab ids.
+ */
+async function reconcileOwnershipsOnStartup() {
+  try {
+    // 1. Idle expiration
+    const settings = (await chrome.storage.local.get('arcSettings')).arcSettings || {};
+    const idleMinutes = settings.idleMinutes ?? 30;
+    const now = Date.now();
+    if (idleMinutes > 0 && state.lastShutdownTime > 0 && state.favoriteOwnerships.length > 0) {
+      const elapsedMin = (now - state.lastShutdownTime) / 60000;
+      if (elapsedMin > idleMinutes) {
+        // Close all owned tabs, clear bindings
+        for (const o of state.favoriteOwnerships) {
+          await chrome.tabs.remove(o.tabId).catch(() => {});
+        }
+        state = { ...state, favoriteOwnerships: [] };
+        await saveState();
+        return;
+      }
+    }
+
+    // 2. Prune bindings for tabs that no longer exist (e.g. Brave was force-killed)
+    if (state.favoriteOwnerships.length > 0) {
+      const liveTabs = await chrome.tabs.query({});
+      const liveIds = new Set(liveTabs.map(t => t.id));
+      const stillValid = state.favoriteOwnerships.filter(o => liveIds.has(o.tabId));
+      if (stillValid.length !== state.favoriteOwnerships.length) {
+        state = { ...state, favoriteOwnerships: stillValid };
+        await saveState();
+      }
+    }
+  } catch (e) {
+    console.warn('Arc: ownership reconciliation failed:', e);
+  }
+}
 async function ensureBookmarksInitialized() {
   if (state.favoritesRootId && getRootId() === state.favoritesRootId) return true;
   if (state.bookmarksFailed) return false;
@@ -377,6 +458,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   stateReady || (await loadState());
+  // Phase 3: if this tab was owned by a favorite, release the ownership
+  if (findOwnershipByTab(tabId)) {
+    releaseOwnershipByTab(tabId);
+  }
   const closingTab = state.tabs.find((t) => t.id === tabId);
   if (closingTab && !isInternal(closingTab.url)) {
     state = { ...state, recentlyClosed: [{ id: crypto.randomUUID(), title: closingTab.title, url: closingTab.url, favIconUrl: closingTab.favIconUrl, spaceId: closingTab.spaceId, closedAt: Date.now() }, ...state.recentlyClosed].slice(0, MAX_CLOSED) };
@@ -463,6 +548,16 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.action.onClicked.addListener(async (tab) => { if (tab.id) await chrome.sidePanel.open({ tabId: tab.id }); });
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+
+// Phase 3: track Brave shutdown for idle expiration calculation
+chrome.windows.onRemoved.addListener(async () => {
+  const windows = await chrome.windows.getAll().catch(() => []);
+  if (windows.length === 0) {
+    // Last window closed → treat as Brave shutdown
+    state = { ...state, lastShutdownTime: Date.now() };
+    await saveState();
+  }
+});
 
 // ─── Message router ───────────────────────────────────────────────────────────
 

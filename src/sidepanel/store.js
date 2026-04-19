@@ -34,6 +34,7 @@ function parseState(rawState) {
     sidebarCollapsed: rawState.sidebarCollapsed ?? false,
     tabAccessOrder:  rawState.tabAccessOrder  ?? [],
     darkMode:        rawState.darkMode        ?? 'auto',
+    favoriteOwnerships: rawState.favoriteOwnerships ?? [],
   }
 }
 
@@ -55,6 +56,7 @@ const useStore = create((set, get) => ({
   favoriteFolders:     [],
   favoriteFolderState: {},
   bookmarksFailed:     false,
+  favoriteOwnerships: [],
 
   setMyWindowId: (id) => set({ myWindowId: id }),
 
