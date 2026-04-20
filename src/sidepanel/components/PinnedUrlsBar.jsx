@@ -3,18 +3,28 @@ import { useSortable, SortableContext, rectSortingStrategy } from '@dnd-kit/sort
 import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import useStore from '../store'
-import { getFaviconSrc, getFaviconFallback, urlsMatch } from '@shared/utils.js'
+import { getFaviconSrc, getFaviconFallback } from '@shared/utils.js'
 
 /**
- * Individual pinned tile — shows open/closed state.
- * Open = accent border + green dot. Closed = dimmed.
+ * Individual pinned tile — ownership-based active state.
+ * Inactive: pin has no owned tab in this window → click opens + binds
+ * Active:   pin owns a tab → click activates, [-] closes
+ * Drifted:  owned tab's URL differs from pin's URL → orange dot, click disabled, [↻] reset
  */
-export function PinnedTile({ pin, accentColor, isOpen, matchingTab, dragging }) {
-  const { unpinUrl, setPinUrlToCurrent } = useStore()
+export function PinnedTile({ pin, accentColor, dragging }) {
+  const {
+    unpinUrl, setPinUrlToCurrent,
+    activatePin, deactivatePin, resetPinDrift,
+    pinOwnerships, myWindowId,
+  } = useStore()
   const [imgError, setImgError] = useState(false)
   const [hover, setHover]       = useState(false)
   const [ctxMenu, setCtxMenu]   = useState(null)
   const ctxRef = React.useRef(null)
+
+  const ownership = (pinOwnerships || []).find(o => o.pinId === pin.id && o.windowId === myWindowId)
+  const isActive  = !!ownership
+  const isDrifted = !!ownership?.drifted
 
   const favicon  = getFaviconSrc(pin.favIconUrl)
   const fallback = getFaviconFallback(pin.title, pin.url)
@@ -27,17 +37,14 @@ export function PinnedTile({ pin, accentColor, isOpen, matchingTab, dragging }) 
   }, [ctxMenu])
 
   const handleClick = () => {
-    if (isOpen && matchingTab) {
-      chrome.tabs.update(matchingTab.id, { active: true })
-    } else {
-      chrome.tabs.create({ url: pin.url })
-    }
+    if (isDrifted) return
+    activatePin(pin.id)
   }
 
   return (
     <>
       <div
-        className={`pinned-url-tile${isOpen ? ' is-open' : ' is-closed'}`}
+        className={`pinned-url-tile${isActive ? ' is-active' : ' is-closed'}${isDrifted ? ' is-drifted' : ''}`}
         style={{ '--space-color': accentColor, opacity: dragging ? 0.6 : undefined }}
         onClick={handleClick}
         onMouseEnter={() => setHover(true)}
@@ -54,23 +61,43 @@ export function PinnedTile({ pin, accentColor, isOpen, matchingTab, dragging }) 
             {fallback.letter}
           </span>
         )}
-        {isOpen && <span className="pinned-live-dot" />}
+        {isActive && !isDrifted && <span className="pinned-live-dot" />}
+        {isActive && hover && !dragging && !isDrifted && (
+          <button
+            className="pin-action-btn pin-close-btn"
+            onClick={(e) => { e.stopPropagation(); deactivatePin(pin.id) }}
+            title="Close tab (keep pin)"
+          >−</button>
+        )}
+        {isDrifted && hover && !dragging && (
+          <button
+            className="pin-action-btn pin-reset-btn"
+            onClick={(e) => { e.stopPropagation(); resetPinDrift(pin.id) }}
+            title="Reset to original URL"
+          >↻</button>
+        )}
         {hover && !dragging && (
           <span className="pinned-tooltip">{pin.title || pin.url}</span>
         )}
       </div>
       {ctxMenu && (
         <div ref={ctxRef} className="fav-ctx-menu" style={{ top: ctxMenu.y, left: ctxMenu.x }}>
-          <div className="ctx-item" onClick={() => { handleClick(); setCtxMenu(null) }}>
-            {isOpen ? 'Switch to Tab' : 'Open'}
+          <div className="ctx-item" onClick={() => { activatePin(pin.id); setCtxMenu(null) }}>
+            {isActive ? 'Switch to Tab' : 'Open'}
           </div>
           <div className="ctx-item" onClick={() => { chrome.tabs.create({ url: pin.url }); setCtxMenu(null) }}>
             Open New Tab
           </div>
-          {isOpen && (
-            <div className="ctx-item" onClick={() => { setPinUrlToCurrent(pin.id); setCtxMenu(null) }}>
-              Set URL to current tab
-            </div>
+          {isDrifted && (
+            <>
+              <div className="ctx-separator" />
+              <div className="ctx-item" onClick={() => { setPinUrlToCurrent(pin.id); setCtxMenu(null) }}>
+                Set URL to current tab
+              </div>
+              <div className="ctx-item" onClick={() => { resetPinDrift(pin.id); setCtxMenu(null) }}>
+                Reset to original URL
+              </div>
+            </>
           )}
           <div className="ctx-separator" />
           <div className="ctx-item danger" onClick={() => { unpinUrl(pin.id); setCtxMenu(null) }}>
@@ -97,7 +124,7 @@ function SortablePinnedTile({ id, ...props }) {
   )
 }
 
-export default function PinnedUrlsBar({ pins, accentColor, tabs }) {
+export default function PinnedUrlsBar({ pins, accentColor }) {
   const sorted = [...pins].sort((a, b) => a.order - b.order)
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: 'pinned-droppable' })
 
@@ -109,21 +136,14 @@ export default function PinnedUrlsBar({ pins, accentColor, tabs }) {
       className={`pinned-urls-bar${isOver ? ' drop-target' : ''}`}
     >
       <SortableContext items={sorted.map((p) => p.id)} strategy={rectSortingStrategy}>
-       {sorted.map((pin) => {
-          // Prefer a match in THIS window; if none here, show it as closed so
-          // clicking opens a new tab in this window rather than jumping to the other window.
-          const matchingTab = tabs.find((t) => urlsMatch(t.url, pin.url))
-          return (
-            <SortablePinnedTile
-              key={pin.id}
-              id={pin.id}
-              pin={pin}
-              accentColor={accentColor}
-              isOpen={!!matchingTab}
-              matchingTab={matchingTab}
-            />
-          )
-        })}
+        {sorted.map((pin) => (
+          <SortablePinnedTile
+            key={pin.id}
+            id={pin.id}
+            pin={pin}
+            accentColor={accentColor}
+          />
+        ))}
       </SortableContext>
     </div>
   )

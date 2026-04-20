@@ -145,6 +145,27 @@ const useStore = create((set, get) => ({
     await sendMessage(Messages.DUPLICATE_TAB, { tabId })
   },
 
+
+  activatePin: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    await sendMessage(Messages.ACTIVATE_PIN, { pinId, windowId: myWindowId })
+  },
+
+  deactivatePin: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.DEACTIVATE_PIN, { pinId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
+
+  resetPinDrift: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.RESET_PIN_DRIFT, { pinId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
+
   muteTab: async (tabId) => {
     const state = await sendMessage(Messages.MUTE_TAB, { tabId })
     if (state) set(parseState(state))

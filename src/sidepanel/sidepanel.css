@@ -1095,3 +1095,48 @@ html, body, #root {
 .folder-drag-handle:active {
   cursor: grabbing;
 }
+
+
+.pinned-url-tile.is-drifted {
+  cursor: default;
+}
+
+.pinned-url-tile.is-drifted::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f97316;
+  z-index: 2;
+}
+
+.pin-action-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-primary, white);
+  color: var(--text-secondary, rgba(0,0,0,0.7));
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  z-index: 3;
+}
+
+.pin-reset-btn {
+  color: #f97316;
+}
+
+.pin-action-btn:hover {
+  filter: brightness(0.95);
+}

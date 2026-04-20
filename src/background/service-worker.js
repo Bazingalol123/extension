@@ -464,17 +464,22 @@ chrome.tabs.onCreated.addListener(async (tab) => {
         await dbg('newtab:error', { msg: String(e) });
         }
     }
-    // Phase 3: auto-reown on Shift+Alt+T reopen
     if (tab.id && tab.url && tab.windowId != null) {
-        const matchingFav = state.favorites.find(f => f.url === tab.url);
-        if (matchingFav) {
-        const existing = findOwnership(matchingFav.id, tab.windowId);
-        if (!existing) {
-            bindOwnership(matchingFav.id, tab.windowId, tab.id);
-            // state save happens below via existing code path
-        }
-        }
+    const matchingFav = state.favorites.find(f => f.url === tab.url);
+    if (matchingFav) {
+      const existing = findOwnership(matchingFav.id, tab.windowId);
+      if (!existing) {
+        bindOwnership(matchingFav.id, tab.windowId, tab.id);
+      }
     }
+    const matchingPin = state.pinnedUrls.find(p => p.url === tab.url);
+    if (matchingPin) {
+      const existingPin = findPinOwnership(matchingPin.id, tab.windowId);
+      if (!existingPin) {
+        bindPinOwnership(matchingPin.id, tab.windowId, tab.id);
+      }
+    }
+  }
   const n = normalizeTab(tab);
   if (n) { state = { ...state, tabs: [...state.tabs.filter((t) => t.id !== tab.id), n] }; await saveState(); }
 });
@@ -861,6 +866,7 @@ async function handleMessage(message) {
         // Don't reach here if drifted (UI blocks it). But defensive: only clear drift on explicit reset.
         return state;
       }
+      
       // Create new tab in the target window
       const fav = state.favorites.find(f => f.id === favId);
       if (!fav) return state;
@@ -871,6 +877,54 @@ async function handleMessage(message) {
       }
       return state;
     }
+
+    case Messages.ACTIVATE_PIN: {
+      const { pinId, windowId } = message;
+      const existing = findPinOwnership(pinId, windowId);
+      if (existing) {
+        // Already owns a tab in this window → activate it
+        await chrome.tabs.update(existing.tabId, { active: true }).catch(() => {});
+        await chrome.windows.update(windowId, { focused: true }).catch(() => {});
+        return state;
+      }
+      // Create new tab
+      const pin = state.pinnedUrls.find(p => p.id === pinId);
+      if (!pin) return state;
+      const newTab = await chrome.tabs.create({ url: pin.url, windowId, active: true }).catch(() => null);
+      if (newTab?.id) {
+        bindPinOwnership(pinId, windowId, newTab.id);
+        await saveState();
+      }
+      return state;
+    }
+
+    case Messages.DEACTIVATE_PIN: {
+      const { pinId, windowId } = message;
+      const existing = findPinOwnership(pinId, windowId);
+      if (!existing) return state;
+      await chrome.tabs.remove(existing.tabId).catch(() => {});
+      releasePinOwnership(pinId, windowId);
+      await saveState();
+      return state;
+    }
+
+    case Messages.RESET_PIN_DRIFT: {
+      const { pinId, windowId } = message;
+      const existing = findPinOwnership(pinId, windowId);
+      if (!existing) return state;
+      const pin = state.pinnedUrls.find(p => p.id === pinId);
+      if (!pin) return state;
+      await chrome.tabs.update(existing.tabId, { url: pin.url }).catch(() => {});
+      state = {
+        ...state,
+        pinOwnerships: state.pinOwnerships.map(o =>
+          o.pinId === pinId && o.windowId === windowId ? { ...o, drifted: false } : o
+        ),
+      };
+      await saveState();
+      return state;
+    }
+    
 
     case Messages.DEACTIVATE_FAVORITE: {
       const { favId, windowId } = message;

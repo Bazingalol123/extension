@@ -22,7 +22,7 @@ export default function App() {
     myWindowId, moveFavoriteFolder,
     load, setSidebarCollapsed, switchSpace, activateFavorite,
     reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
-    moveFavorite, setDarkMode, favoriteOwnerships, 
+    moveFavorite, setDarkMode, favoriteOwnerships, pinOwnerships,
   } = useStore()
 
   const [showNewTabModal, setShowNewTabModal] = useState(false)
@@ -126,12 +126,11 @@ export default function App() {
  const windowTabs = useMemo(
     () => {
       if (myWindowId == null) return []
-      const ownedTabIds = new Set(
-        (favoriteOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId)
-      )
-      return tabs.filter(t => t.windowId === myWindowId && !ownedTabIds.has(t.id))
+      const favOwnedIds = new Set((favoriteOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId))
+      const pinOwnedIds = new Set((pinOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId))
+      return tabs.filter(t => t.windowId === myWindowId && !favOwnedIds.has(t.id) && !pinOwnedIds.has(t.id))
     },
-    [tabs, myWindowId, favoriteOwnerships]
+    [tabs, myWindowId, favoriteOwnerships, pinOwnerships]
   )
 
   const spaceTabs = useMemo(
