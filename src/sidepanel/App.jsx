@@ -17,9 +17,9 @@ import { Messages } from '@shared/messages.js'
 
 export default function App() {
   const {
-    spaces, activeSpaceId, tabs, favorites, pinnedUrls, favoriteFolders,
+    spaces, activeSpaceId, tabs, favorites, pinnedUrls, favoriteFolders, favoritesRootId,
     activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
-    myWindowId,
+    myWindowId, moveFavoriteFolder,
     load, setSidebarCollapsed, switchSpace, activateFavorite,
     reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
     moveFavorite, setDarkMode, favoriteOwnerships, 
@@ -143,6 +143,7 @@ export default function App() {
     () => [...spaceTabs].sort((a, b) => b.openedAt - a.openedAt),
     [spaceTabs]
   )
+
    
   const sortedFavorites = useMemo(() => [...favorites].sort((a, b) => a.order - b.order), [favorites])
   const sortedPins      = useMemo(() => [...pinnedUrls].sort((a, b) => a.order - b.order), [pinnedUrls])
@@ -167,6 +168,7 @@ export default function App() {
     return counts
   }, [tabs])
 
+  const activeDragFolder = favoriteFolders.find((f) => `fav-folder-${f.id}` === String(activeDragId))
   const activeDragTab = sortedLooseTabs.find((t) => String(t.id) === String(activeDragId))
   const activeDragFav = sortedFavorites.find((f) => String(f.id) === String(activeDragId))
   const activeDragPin = sortedPins.find((p) => String(p.id) === String(activeDragId))
@@ -181,6 +183,7 @@ export default function App() {
 
       const isLooseTab = sortedLooseTabs.some((t) => String(t.id) === String(active.id))
       const isFav      = sortedFavorites.some((f) => String(f.id) === String(active.id))
+      const isFolder = String(active.id).startsWith('fav-folder-')
 
       if (isLooseTab) {
        if (over.id === 'favorites-droppable' ||sortedFavorites.some((f) => String(f.id) === String(over.id)) ||String(over.id).startsWith('fav-folder-')) {
@@ -203,32 +206,69 @@ export default function App() {
           const ni = sortedLooseTabs.findIndex((t) => String(t.id) === String(over.id))
           if (oi !== -1 && ni !== -1) reorderTabs(arrayMove(sortedLooseTabs, oi, ni).map((t) => t.id))
         }
-      } else if (isFav) {
-        // Drag into a folder header/body
+      }
+       else if (isFav) {
+        // Drop on folder header → move into that folder
         if (String(over.id).startsWith('fav-folder-')) {
           const folderId = String(over.id).replace('fav-folder-', '')
           moveFavorite(active.id, folderId)
           return
+        } 
+        // Drop on the favorites container (empty area) → move to root
+        if (String(over.id) === 'favorites-droppable' || String(over.id) === 'favorites-root-drop') {
+          moveFavorite(active.id, favoritesRootId)
+          return
         }
-        // Drag over another favorite that's inside a folder — move into that folder
+        // Drop on another fav that's in a different parent → move into that parent
         const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
         const activeFav = sortedFavorites.find((f) => String(f.id) === String(active.id))
         if (overFav && activeFav && overFav.parentId !== activeFav.parentId) {
           moveFavorite(active.id, overFav.parentId)
           return
         }
-        // Same-parent reorder (top-level among top-level, or within same folder)
+        // Same-parent reorder
         const oi = sortedFavorites.findIndex((f) => String(f.id) === String(active.id))
         const ni = sortedFavorites.findIndex((f) => String(f.id) === String(over.id))
         if (oi !== -1 && ni !== -1) reorderFavorites(arrayMove(sortedFavorites, oi, ni).map((f) => f.id))
-      } else {
+      }  
+        else if (isFolder) {
+        const folderId = String(active.id).replace('fav-folder-', '')
+        const activeFolder = favoriteFolders.find(f => f.id === folderId)
+
+        // Drop on another folder
+        if (String(over.id).startsWith('fav-folder-') && String(over.id) !== String(active.id)) {
+          const destFolderId = String(over.id).replace('fav-folder-', '')
+          const destFolder = favoriteFolders.find(f => f.id === destFolderId)
+
+          // Same parent → reorder (move to dest's position)
+          if (activeFolder && destFolder && activeFolder.parentId === destFolder.parentId) {
+            moveFavoriteFolder(folderId, destFolder.parentId, destFolder.order)
+            return
+          }
+          // Different parent → nest inside
+          moveFavoriteFolder(folderId, destFolderId)
+          return
+        }
+        // Drop on favorite or root → move folder to that parent
+        const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
+        if (overFav) {
+          moveFavoriteFolder(folderId, overFav.parentId)
+          return
+        }
+        if (String(over.id) === 'favorites-droppable' || String(over.id) === 'favorites-root-drop') {
+          moveFavoriteFolder(folderId, favoritesRootId)
+          return
+        }
+      }
+      else {
         const oi = sortedPins.findIndex((p) => String(p.id) === String(active.id))
         const ni = sortedPins.findIndex((p) => String(p.id) === String(over.id))
         if (oi !== -1 && ni !== -1) reorderPins(arrayMove(sortedPins, oi, ni).map((p) => p.id))
       }
     },
     [sortedLooseTabs, sortedFavorites, sortedPins,
-     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl, moveFavorite]
+     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl,
+     moveFavorite, moveFavoriteFolder, favoritesRootId, favoriteFolders]
   )
 
   if (loading) return <div className="loading-state">Loading…</div>
@@ -299,7 +339,7 @@ export default function App() {
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={windowTabs} />}
-        <FavoritesBar favorites={sortedFavorites} folders={favoriteFolders} accentColor={accentColor} />
+        <FavoritesBar favorites={sortedFavorites} folders={favoriteFolders} accentColor={accentColor} favoritesRootId={favoritesRootId} />
 
         <div className="tabs-area" ref={tabsAreaRef}>
           <div className="section">
@@ -321,6 +361,7 @@ export default function App() {
           {activeDragTab && <div style={{ opacity: 0.85, transform: 'scale(1.02)', cursor: 'grabbing' }}><TabItem tab={activeDragTab} isActive={activeDragTab.id === activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} /></div>}
           {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavoriteRow fav={activeDragFav} accentColor={accentColor} /></div>}
           {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={windowTabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
+          {activeDragFolder && <div style={{ opacity: 0.85, padding: '8px 12px', background: 'var(--bg-secondary, white)', border: '1px solid var(--accent-color, #7C6AF7)', borderRadius: 6 }}>📁 {activeDragFolder.title}</div>}
         </DragOverlay>
       </DndContext>
 

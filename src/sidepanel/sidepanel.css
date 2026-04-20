@@ -1052,3 +1052,46 @@ html, body, #root {
 .favorite-row:hover .fav-action-btn.action-reset {
   opacity: 1;
 }
+
+/* Nested folders: depth indentation handled inline via paddingLeft.
+   Chevron position stays anchored to the row-level padding-left so it
+   visually aligns with each level's indent. */
+
+.favorite-folder .folder-header {
+  padding-right: 8px;
+}
+
+.favorite-folder.drop-target {
+  outline: 2px solid var(--accent-color, #7C6AF7);
+  outline-offset: -2px;
+}
+
+
+.folder-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 20px;
+  color: var(--text-tertiary, rgba(0,0,0,0.5));
+  cursor: grab;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: -1px;
+  user-select: none;
+  opacity: 0.4;
+  transition: opacity 0.1s, color 0.1s;
+}
+
+.folder-header:hover .folder-drag-handle {
+  opacity: 1;
+  color: var(--text-secondary, rgba(0,0,0,0.7));
+}
+
+.folder-drag-handle:hover {
+  color: var(--accent-color, #7C6AF7);
+}
+
+.folder-drag-handle:active {
+  cursor: grabbing;
+}

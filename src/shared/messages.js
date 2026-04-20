@@ -1,13 +1,15 @@
 export const Messages = {
-  ACTIVATE_FAVORITE: 'ACTIVATE_FAVORITE',
-  DEACTIVATE_FAVORITE: 'DEACTIVATE_FAVORITE',
-  RESET_FAVORITE_DRIFT: 'RESET_FAVORITE_DRIFT', 
+  // ── State ─────────────────────────────────────────────────────────────────
   GET_STATE: 'GET_STATE',
   STATE_UPDATED: 'STATE_UPDATED',
+
+  // ── Spaces ────────────────────────────────────────────────────────────────
   CREATE_SPACE: 'CREATE_SPACE',
   SWITCH_SPACE: 'SWITCH_SPACE',
   RENAME_SPACE: 'RENAME_SPACE',
   DELETE_SPACE: 'DELETE_SPACE',
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
   PIN_TAB: 'PIN_TAB',
   UNPIN_TAB: 'UNPIN_TAB',
   CLOSE_TAB: 'CLOSE_TAB',
@@ -17,57 +19,60 @@ export const Messages = {
   REORDER_TABS: 'REORDER_TABS',
   SUSPEND_TAB: 'SUSPEND_TAB',
   SUSPEND_SPACE: 'SUSPEND_SPACE',
+  ACTIVATE_TAB: 'ACTIVATE_TAB',
+  CREATE_TAB_WITH_URL: 'CREATE_TAB_WITH_URL',
+
+  // ── Command bar & modals ──────────────────────────────────────────────────
   OPEN_COMMAND_BAR: 'OPEN_COMMAND_BAR',
-
-  // Sent to side panel to open in-panel modal (kept for backward compat)
   OPEN_NEW_TAB_MODAL: 'OPEN_NEW_TAB_MODAL',
-
-  // Sent to SW to open the centered popup window (Alt+T / Ctrl+T)
   NEW_TAB_MODAL_OPEN: 'NEW_TAB_MODAL_OPEN',
 
-
-
-
-  RENAME_FAVORITE: 'RENAME_FAVORITE',
-  MOVE_FAVORITE: 'MOVE_FAVORITE',
-  CREATE_FAVORITE_FOLDER: 'CREATE_FAVORITE_FOLDER',
-  DELETE_FAVORITE_FOLDER: 'DELETE_FAVORITE_FOLDER',
-  RENAME_FAVORITE_FOLDER: 'RENAME_FAVORITE_FOLDER',
-  TOGGLE_FAVORITE_FOLDER: 'TOGGLE_FAVORITE_FOLDER',
-  CREATE_TAB_WITH_URL: 'CREATE_TAB_WITH_URL',
+  // ── Favorites ─────────────────────────────────────────────────────────────
   ADD_FAVORITE: 'ADD_FAVORITE',
   REMOVE_FAVORITE: 'REMOVE_FAVORITE',
   REORDER_FAVORITES: 'REORDER_FAVORITES',
-  PIN_URL: 'PIN_URL',
-  UNPIN_URL: 'UNPIN_URL',
-  REORDER_PINS: 'REORDER_PINS',
-//   CREATE_FOLDER: 'CREATE_FOLDER',
-//   DELETE_FOLDER: 'DELETE_FOLDER',
-//   RENAME_FOLDER: 'RENAME_FOLDER',
-//   TOGGLE_FOLDER: 'TOGGLE_FOLDER',
-//   MOVE_TAB_TO_FOLDER: 'MOVE_TAB_TO_FOLDER',
-//   REMOVE_TAB_FROM_FOLDER: 'REMOVE_TAB_FROM_FOLDER',
-//   REORDER_FOLDERS: 'REORDER_FOLDERS',
   RENAME_FAVORITE: 'RENAME_FAVORITE',
   MOVE_FAVORITE: 'MOVE_FAVORITE',
+  SET_FAVORITE_URL_TO_CURRENT: 'SET_FAVORITE_URL_TO_CURRENT',  // Drop 4
+  ACTIVATE_FAVORITE: 'ACTIVATE_FAVORITE',
+  DEACTIVATE_FAVORITE: 'DEACTIVATE_FAVORITE',
+  RESET_FAVORITE_DRIFT: 'RESET_FAVORITE_DRIFT',
+
+  // ── Favorite folders ──────────────────────────────────────────────────────
   CREATE_FAVORITE_FOLDER: 'CREATE_FAVORITE_FOLDER',
   DELETE_FAVORITE_FOLDER: 'DELETE_FAVORITE_FOLDER',
   RENAME_FAVORITE_FOLDER: 'RENAME_FAVORITE_FOLDER',
   TOGGLE_FAVORITE_FOLDER: 'TOGGLE_FAVORITE_FOLDER',
+  MOVE_FAVORITE_FOLDER: 'MOVE_FAVORITE_FOLDER',  // Drop 4: drag folder into folder / reorder
+
+  // ── Pins ──────────────────────────────────────────────────────────────────
+  PIN_URL: 'PIN_URL',
+  UNPIN_URL: 'UNPIN_URL',
+  REORDER_PINS: 'REORDER_PINS',
+  SET_PIN_URL_TO_CURRENT: 'SET_PIN_URL_TO_CURRENT',  // Drop 4
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────
   TOGGLE_SIDEBAR: 'TOGGLE_SIDEBAR',
   SET_SIDEBAR_COLLAPSED: 'SET_SIDEBAR_COLLAPSED',
+
+  // ── Recently closed ───────────────────────────────────────────────────────
   RESTORE_CLOSED_TAB: 'RESTORE_CLOSED_TAB',
   CLEAR_CLOSED_TABS: 'CLEAR_CLOSED_TABS',
+
+  // ── Sessions ──────────────────────────────────────────────────────────────
   SAVE_SESSION: 'SAVE_SESSION',
   RESTORE_SESSION: 'RESTORE_SESSION',
   DELETE_SESSION: 'DELETE_SESSION',
   GET_SESSIONS: 'GET_SESSIONS',
+
+  // ── Settings ──────────────────────────────────────────────────────────────
   GET_SETTINGS: 'GET_SETTINGS',
   UPDATE_SETTINGS: 'UPDATE_SETTINGS',
   SET_DARK_MODE: 'SET_DARK_MODE',
+
+  // ── Tab switcher ──────────────────────────────────────────────────────────
   TAB_SWITCHER_OPEN: 'TAB_SWITCHER_OPEN',
   TAB_SWITCHER_CLOSE: 'TAB_SWITCHER_CLOSE',
   TAB_SWITCHER_GET_SCREENSHOTS: 'TAB_SWITCHER_GET_SCREENSHOTS',
   TAB_SWITCHER_CAPTURE_CURRENT: 'TAB_SWITCHER_CAPTURE_CURRENT',
-  ACTIVATE_TAB: 'ACTIVATE_TAB',
 }

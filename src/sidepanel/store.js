@@ -35,6 +35,7 @@ function parseState(rawState) {
     tabAccessOrder:  rawState.tabAccessOrder  ?? [],
     darkMode:        rawState.darkMode        ?? 'auto',
     favoriteOwnerships: rawState.favoriteOwnerships ?? [],
+    favoritesRootId:    rawState.favoritesRootId    ?? null,
   }
 }
 
@@ -57,6 +58,7 @@ const useStore = create((set, get) => ({
   favoriteFolderState: {},
   bookmarksFailed:     false,
   favoriteOwnerships: [],
+  favoritesRootId:    null,
 
   setMyWindowId: (id) => set({ myWindowId: id }),
 
@@ -209,8 +211,16 @@ const useStore = create((set, get) => ({
     if (state) set(parseState(state))
   },
 
-  createFavoriteFolder: async (title) => {
-    const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, { title: title || 'New folder' })
+  moveFavoriteFolder: async (folderId, parentId, index) => {
+    const state = await sendMessage(Messages.MOVE_FAVORITE_FOLDER, { folderId, parentId, index })
+    if (state) set(parseState(state))
+  },
+
+  createFavoriteFolder: async (title, parentId) => {
+    const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, {
+      title: title || 'New folder',
+      ...(parentId ? { parentId } : {}),
+    })
     if (state) set(parseState(state))
   },
 
@@ -258,6 +268,17 @@ const useStore = create((set, get) => ({
     if (state) set(parseState(state))
   },
 
+  setFavoriteUrlToCurrent: async (favId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.SET_FAVORITE_URL_TO_CURRENT, { favId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
+
+  
+
+
+
   // ── Pinned URLs ───────────────────────────────────────────────────────────
   pinUrl: async (tab) => {
     const state = await sendMessage(Messages.PIN_URL, {
@@ -281,6 +302,12 @@ const useStore = create((set, get) => ({
     await sendMessage(Messages.REORDER_PINS, { ids })
   },
 
+  setPinUrlToCurrent: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.SET_PIN_URL_TO_CURRENT, { pinId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
  
 
   // ── Sidebar ───────────────────────────────────────────────────────────────

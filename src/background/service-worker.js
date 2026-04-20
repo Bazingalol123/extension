@@ -760,7 +760,7 @@ async function handleMessage(message) {
     case Messages.CREATE_FAVORITE_FOLDER: {
       const ready = await ensureBookmarksInitialized();
       if (!ready) return state;
-      await createFolder(message.title || 'New folder');
+      await createFolder(message.title || 'New folder', message.parentId);
       await rebuildFavoritesFromBookmarks();
       return state;
     }
@@ -785,7 +785,27 @@ async function handleMessage(message) {
       return state;
     }
 
-
+    case Messages.MOVE_FAVORITE_FOLDER: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      // Prevent moving a folder into its own descendant (creates a cycle).
+      // We can check this by walking the folders tree upward from the destination.
+      const { folderId, parentId, index } = message;
+      if (folderId === parentId) return state;
+      let cursor = parentId;
+      while (cursor && cursor !== state.favoritesRootId) {
+        if (cursor === folderId) {
+          // dest is descendant of src → abort
+          return state;
+        }
+        const f = state.favoriteFolders.find(x => x.id === cursor);
+        if (!f) break;
+        cursor = f.parentId;
+      }
+      await moveBookmark(folderId, { parentId, index });
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
 
     case Messages.ACTIVATE_FAVORITE: {
       const { favId, windowId } = message;
@@ -832,6 +852,45 @@ async function handleMessage(message) {
         ...state,
         favoriteOwnerships: state.favoriteOwnerships.map(o =>
           o.favId === favId && o.windowId === windowId ? { ...o, drifted: false } : o
+        ),
+      };
+      await saveState();
+      return state;
+    }
+
+    case Messages.SET_FAVORITE_URL_TO_CURRENT: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      const { favId, windowId } = message;
+      const ownership = findOwnership(favId, windowId);
+      if (!ownership) return state;
+      const tab = state.tabs.find(t => t.id === ownership.tabId);
+      if (!tab?.url) return state;
+      await updateBookmark(favId, { url: tab.url });
+      // Clear drift flag — stored URL now matches tab URL
+      state = {
+        ...state,
+        favoriteOwnerships: state.favoriteOwnerships.map(o =>
+          o.favId === favId && o.windowId === windowId ? { ...o, drifted: false } : o
+        ),
+      };
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.SET_PIN_URL_TO_CURRENT: {
+      const { pinId, windowId } = message;
+      // Find tab matching the pin's current URL in this window (the "active" tab for this pin)
+      const pin = state.pinnedUrls.find(p => p.id === pinId);
+      if (!pin) return state;
+      const matchingTab = state.tabs.find(t =>
+        t.windowId === windowId && urlsMatch(t.url, pin.url)
+      );
+      if (!matchingTab?.url) return state;
+      state = {
+        ...state,
+        pinnedUrls: state.pinnedUrls.map(p =>
+          p.id === pinId ? { ...p, url: matchingTab.url, title: matchingTab.title || p.title } : p
         ),
       };
       await saveState();
