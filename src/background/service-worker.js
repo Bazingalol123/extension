@@ -838,6 +838,45 @@ async function handleMessage(message) {
       return state;
     }
 
+    case Messages.SET_FAVORITE_URL_TO_CURRENT: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      const { favId, windowId } = message;
+      const ownership = findOwnership(favId, windowId);
+      if (!ownership) return state;
+      const tab = state.tabs.find(t => t.id === ownership.tabId);
+      if (!tab?.url) return state;
+      await updateBookmark(favId, { url: tab.url });
+      // Clear drift flag — stored URL now matches tab URL
+      state = {
+        ...state,
+        favoriteOwnerships: state.favoriteOwnerships.map(o =>
+          o.favId === favId && o.windowId === windowId ? { ...o, drifted: false } : o
+        ),
+      };
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+    case Messages.SET_PIN_URL_TO_CURRENT: {
+      const { pinId, windowId } = message;
+      // Find tab matching the pin's current URL in this window (the "active" tab for this pin)
+      const pin = state.pinnedUrls.find(p => p.id === pinId);
+      if (!pin) return state;
+      const matchingTab = state.tabs.find(t =>
+        t.windowId === windowId && urlsMatch(t.url, pin.url)
+      );
+      if (!matchingTab?.url) return state;
+      state = {
+        ...state,
+        pinnedUrls: state.pinnedUrls.map(p =>
+          p.id === pinId ? { ...p, url: matchingTab.url, title: matchingTab.title || p.title } : p
+        ),
+      };
+      await saveState();
+      return state;
+    }
+
     case Messages.TOGGLE_FAVORITE_FOLDER: {
       state = {
         ...state,

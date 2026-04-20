@@ -258,6 +258,17 @@ const useStore = create((set, get) => ({
     if (state) set(parseState(state))
   },
 
+  setFavoriteUrlToCurrent: async (favId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.SET_FAVORITE_URL_TO_CURRENT, { favId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
+
+  
+
+
+
   // ── Pinned URLs ───────────────────────────────────────────────────────────
   pinUrl: async (tab) => {
     const state = await sendMessage(Messages.PIN_URL, {
@@ -281,6 +292,12 @@ const useStore = create((set, get) => ({
     await sendMessage(Messages.REORDER_PINS, { ids })
   },
 
+  setPinUrlToCurrent: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.SET_PIN_URL_TO_CURRENT, { pinId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
  
 
   // ── Sidebar ───────────────────────────────────────────────────────────────

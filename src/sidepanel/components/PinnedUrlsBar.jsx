@@ -10,7 +10,7 @@ import { getFaviconSrc, getFaviconFallback, urlsMatch } from '@shared/utils.js'
  * Open = accent border + green dot. Closed = dimmed.
  */
 export function PinnedTile({ pin, accentColor, isOpen, matchingTab, dragging }) {
-  const { unpinUrl } = useStore()
+  const { unpinUrl, setPinUrlToCurrent } = useStore()
   const [imgError, setImgError] = useState(false)
   const [hover, setHover]       = useState(false)
   const [ctxMenu, setCtxMenu]   = useState(null)
@@ -67,6 +67,11 @@ export function PinnedTile({ pin, accentColor, isOpen, matchingTab, dragging }) 
           <div className="ctx-item" onClick={() => { chrome.tabs.create({ url: pin.url }); setCtxMenu(null) }}>
             Open New Tab
           </div>
+          {isOpen && (
+            <div className="ctx-item" onClick={() => { setPinUrlToCurrent(pin.id); setCtxMenu(null) }}>
+              Set URL to current tab
+            </div>
+          )}
           <div className="ctx-separator" />
           <div className="ctx-item danger" onClick={() => { unpinUrl(pin.id); setCtxMenu(null) }}>
             Unpin

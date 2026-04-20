@@ -11,6 +11,7 @@ export function FavoriteRow({ fav, accentColor, isDragging, inFolder }) {
   const {
     removeFavorite, renameFavorite,
     activateFavorite, deactivateFavorite, resetFavoriteDrift,
+    setFavoriteUrlToCurrent,
     favoriteOwnerships, myWindowId,
   } = useStore()
 
@@ -139,6 +140,17 @@ export function FavoriteRow({ fav, accentColor, isDragging, inFolder }) {
           <div className="ctx-item" onClick={() => { setEditing(true); setCtxMenu(null) }}>
             Rename
           </div>
+          {isDrifted && (
+            <>
+              <div className="ctx-separator" />
+              <div className="ctx-item" onClick={() => { setFavoriteUrlToCurrent(fav.id); setCtxMenu(null) }}>
+                Set URL to current tab
+              </div>
+              <div className="ctx-item" onClick={() => { resetFavoriteDrift(fav.id); setCtxMenu(null) }}>
+                Reset to original URL
+              </div>
+            </>
+          )}
           <div className="ctx-separator" />
           <div className="ctx-item danger" onClick={() => { removeFavorite(fav.id); setCtxMenu(null) }}>
             Delete favorite
