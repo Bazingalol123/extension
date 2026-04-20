@@ -106,7 +106,9 @@ let state = {
   faviconCache:      {},     // url → favIconUrl
   faviconCacheKeys:  [],     // LRU order
   favoriteOwnerships:  [],    // FavoriteOwnership[]
+  pinOwnerships:       [],
   lastShutdownTime:    0,
+
 };
 let stateReady     = false;
 let tabAccessOrder = [];
@@ -135,11 +137,13 @@ async function loadState() {
         sidebarCollapsed:false, darkMode:'auto',
         // Phase 3: ensure arrays/objects exist on upgrade from pre-Phase-3 state
         favoriteOwnerships: [],
+        pinOwnerships: [],
         lastShutdownTime: 0,
         ...saved,
         spaces: migratedSpaces, pinnedUrls: globalPins,
         recentlyClosed: saved.recentlyClosed || [],
         favoriteOwnerships: Array.isArray(saved.favoriteOwnerships) ? saved.favoriteOwnerships : [],
+        pinOwnerships: Array.isArray(saved.pinOwnerships) ? saved.pinOwnerships : [],
         lastShutdownTime: typeof saved.lastShutdownTime === 'number' ? saved.lastShutdownTime : 0,
     };
     tabAccessOrder = saved.tabAccessOrder || [];
@@ -198,6 +202,35 @@ function findOwnership(favId, windowId) {
   return state.favoriteOwnerships.find(o => o.favId === favId && o.windowId === windowId) || null;
 }
 
+// ─── Pin ownership (mirror of favorite ownership) ──────────────────────────
+
+function findPinOwnership(pinId, windowId) {
+  if (!Array.isArray(state.pinOwnerships)) state = { ...state, pinOwnerships: [] };
+  return state.pinOwnerships.find(o => o.pinId === pinId && o.windowId === windowId) || null;
+}
+
+function findPinOwnershipByTab(tabId) {
+  if (!Array.isArray(state.pinOwnerships)) state = { ...state, pinOwnerships: [] };
+  return state.pinOwnerships.find(o => o.tabId === tabId) || null;
+}
+
+function bindPinOwnership(pinId, windowId, tabId) {
+  if (!Array.isArray(state.pinOwnerships)) state = { ...state, pinOwnerships: [] };
+  const filtered = state.pinOwnerships.filter(o => !(o.pinId === pinId && o.windowId === windowId));
+  state = { ...state, pinOwnerships: [...filtered, { pinId, windowId, tabId, drifted: false, boundAt: Date.now() }] };
+}
+
+function releasePinOwnership(pinId, windowId) {
+  if (!Array.isArray(state.pinOwnerships)) state = { ...state, pinOwnerships: [] };
+  state = { ...state, pinOwnerships: state.pinOwnerships.filter(o => !(o.pinId === pinId && o.windowId === windowId)) };
+}
+
+function releasePinOwnershipByTab(tabId) {
+  if (!Array.isArray(state.pinOwnerships)) state = { ...state, pinOwnerships: [] };
+  state = { ...state, pinOwnerships: state.pinOwnerships.filter(o => o.tabId !== tabId) };
+}
+
+
 /**
  * Find the ownership entry that owns a given tab id, or null.
  */
@@ -237,26 +270,32 @@ async function reconcileOwnershipsOnStartup() {
     const settings = (await chrome.storage.local.get('arcSettings')).arcSettings || {};
     const idleMinutes = settings.idleMinutes ?? 30;
     const now = Date.now();
-    if (idleMinutes > 0 && state.lastShutdownTime > 0 && state.favoriteOwnerships.length > 0) {
+    if (idleMinutes > 0 && state.lastShutdownTime > 0 &&
+        (state.favoriteOwnerships.length > 0 || state.pinOwnerships.length > 0)) {
       const elapsedMin = (now - state.lastShutdownTime) / 60000;
       if (elapsedMin > idleMinutes) {
-        // Close all owned tabs, clear bindings
-        for (const o of state.favoriteOwnerships) {
+        const allOwned = [
+          ...state.favoriteOwnerships,
+          ...state.pinOwnerships,
+        ];
+        for (const o of allOwned) {
           await chrome.tabs.remove(o.tabId).catch(() => {});
         }
-        state = { ...state, favoriteOwnerships: [] };
+        state = { ...state, favoriteOwnerships: [], pinOwnerships: [] };
         await saveState();
         return;
       }
     }
 
     // 2. Prune bindings for tabs that no longer exist (e.g. Brave was force-killed)
-    if (state.favoriteOwnerships.length > 0) {
+    if (state.favoriteOwnerships.length > 0 || state.pinOwnerships.length > 0) {
       const liveTabs = await chrome.tabs.query({});
       const liveIds = new Set(liveTabs.map(t => t.id));
-      const stillValid = state.favoriteOwnerships.filter(o => liveIds.has(o.tabId));
-      if (stillValid.length !== state.favoriteOwnerships.length) {
-        state = { ...state, favoriteOwnerships: stillValid };
+      const favStillValid = state.favoriteOwnerships.filter(o => liveIds.has(o.tabId));
+      const pinStillValid = state.pinOwnerships.filter(o => liveIds.has(o.tabId));
+      if (favStillValid.length !== state.favoriteOwnerships.length ||
+          pinStillValid.length !== state.pinOwnerships.length) {
+        state = { ...state, favoriteOwnerships: favStillValid, pinOwnerships: pinStillValid };
         await saveState();
       }
     }
@@ -500,6 +539,10 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   // Phase 3: if this tab was owned by a favorite, release the ownership
   if (findOwnershipByTab(tabId)) {
     releaseOwnershipByTab(tabId);
+  }
+  // Phase 5: same for pins
+  if (findPinOwnershipByTab(tabId)) {
+    releasePinOwnershipByTab(tabId);
   }
   const closingTab = state.tabs.find((t) => t.id === tabId);
   if (closingTab && !isInternal(closingTab.url)) {
@@ -914,6 +957,7 @@ async function handleMessage(message) {
     case Messages.UNPIN_URL: { state={...state,pinnedUrls:state.pinnedUrls.filter((p)=>p.id!==message.pinId)}; await saveState(); return state; }
     case Messages.REORDER_PINS: { state={...state,pinnedUrls:message.ids.map((id,i)=>{const p=state.pinnedUrls.find((p)=>p.id===id);return p?{...p,order:i}:null;}).filter(Boolean)}; await saveState(); return state; }
 
+   
     // ── Folders ───────────────────────────────────────────────────────────────
 
     // case Messages.CREATE_FOLDER: { const f={id:crypto.randomUUID(),name:message.name||'New Folder',tabIds:message.tabIds||[],collapsed:false,spaceId:message.spaceId||state.activeSpaceId,order:state.folders.filter((f)=>f.spaceId===(message.spaceId||state.activeSpaceId)).length}; state={...state,folders:[...state.folders,f]}; await saveState(); return state; }

@@ -36,6 +36,7 @@ function parseState(rawState) {
     darkMode:        rawState.darkMode        ?? 'auto',
     favoriteOwnerships: rawState.favoriteOwnerships ?? [],
     favoritesRootId:    rawState.favoritesRootId    ?? null,
+    pinOwnerships: Array.isArray(rawState.pinOwnerships) ? rawState.pinOwnerships : [],
   }
 }
 
@@ -59,6 +60,7 @@ const useStore = create((set, get) => ({
   bookmarksFailed:     false,
   favoriteOwnerships: [],
   favoritesRootId:    null,
+  pinOwnerships: [],
 
   setMyWindowId: (id) => set({ myWindowId: id }),
 

@@ -69,6 +69,7 @@
  * @property {boolean} sidebarCollapsed - Whether sidebar is collapsed to icon rail
  * @property {FavoriteFolder[]} favoriteFolders - Top-level folders under "My Favorites"
  * @property {Object<string,boolean>} favoriteFolderState - folderId → collapsed flag
+ * @property {PinOwnership[]} pinOwnerships
  */
 
 /**
@@ -83,6 +84,13 @@
  */
 
 
-
+/**
+ * @typedef {Object} PinOwnership
+ * @property {string} pinId - Pin id
+ * @property {number} windowId - Window owning the tab
+ * @property {number} tabId - Chrome tab id
+ * @property {boolean} drifted
+ * @property {number} boundAt
+ */
 // This file is documentation-only. No runtime exports needed.
 // Import types in JSDoc with: /** @type {import('./types').ArcState} */
