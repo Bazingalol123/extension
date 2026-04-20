@@ -10,7 +10,7 @@ function openTabSwitcher() {
   }).catch(() => {})
 }
 
-export default function BottomBar({ onNewTab, onNewSpace, onSessions, darkMode, onToggleDarkMode }) {
+export default function BottomBar({ onNewTab, onNewSpace,  onSessions, darkMode, onToggleDarkMode }) {
   const { activeSpaceId, suspendSpace } = useStore()
 
   const darkIcon  = darkMode === 'dark' ? '☀️' : darkMode === 'light' ? '🌙' : '🌗'
@@ -44,7 +44,7 @@ export default function BottomBar({ onNewTab, onNewSpace, onSessions, darkMode, 
         </svg>
       </button>
 
-
+      
 
       {/* Sessions */}
       <button className="bottom-btn" onClick={onSessions} title="Sessions">

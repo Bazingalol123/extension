@@ -5,7 +5,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import useStore from './store'
 import SpaceSelector from './components/SpaceSelector'
-import FavoritesBar, { FavTile } from './components/FavoritesBar'
+import FavoritesBar, {FavoriteRow} from './components/FavoritesBar.jsx'
 import PinnedUrlsBar, { PinnedTile } from './components/PinnedUrlsBar'
 import TabItem, { SortableTabItem } from './components/TabItem'
 import BottomBar from './components/BottomBar'
@@ -16,14 +16,14 @@ import { urlsMatch } from '@shared/utils.js'
 import { Messages } from '@shared/messages.js'
 
 export default function App() {
-    const {
-        spaces, activeSpaceId, tabs, favorites, pinnedUrls,
-        activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
-        myWindowId,
-        load, setSidebarCollapsed, switchSpace, activateFavoriteUrl,
-        reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
-         setDarkMode,
-    } = useStore()
+  const {
+    spaces, activeSpaceId, tabs, favorites, pinnedUrls, favoriteFolders,
+    activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
+    myWindowId,
+    load, setSidebarCollapsed, switchSpace, activateFavorite,
+    reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
+    moveFavorite, setDarkMode, favoriteOwnerships, 
+  } = useStore()
 
   const [showNewTabModal, setShowNewTabModal] = useState(false)
   const [showSessions, setShowSessions]       = useState(false)
@@ -120,17 +120,26 @@ export default function App() {
   const activeSpace   = useMemo(() => spaces.find((s) => s.id === activeSpaceId), [spaces, activeSpaceId])
   const accentColor   = activeSpace?.color ?? '#7C6AF7'
 
-    const windowTabs = useMemo(
-    () => (myWindowId == null ? [] : tabs.filter((t) => t.windowId === myWindowId)),
-    [tabs, myWindowId]
+  // Phase 1: narrow to this sidepanel's window first.
+  // While myWindowId is resolving (briefly on mount), render nothing rather than
+  // leak other-window tabs into this view.
+ const windowTabs = useMemo(
+    () => {
+      if (myWindowId == null) return []
+      const ownedTabIds = new Set(
+        (favoriteOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId)
+      )
+      return tabs.filter(t => t.windowId === myWindowId && !ownedTabIds.has(t.id))
+    },
+    [tabs, myWindowId, favoriteOwnerships]
   )
 
-    const spaceTabs = useMemo(
-        () => windowTabs.filter((t) => t.spaceId === activeSpaceId),
-        [windowTabs, activeSpaceId]
-    )
+  const spaceTabs = useMemo(
+    () => windowTabs.filter((t) => t.spaceId === activeSpaceId),
+    [windowTabs, activeSpaceId]
+  )
 
-    const sortedLooseTabs = useMemo(
+  const sortedLooseTabs = useMemo(
     () => [...spaceTabs].sort((a, b) => b.openedAt - a.openedAt),
     [spaceTabs]
   )
@@ -174,21 +183,41 @@ export default function App() {
       const isFav      = sortedFavorites.some((f) => String(f.id) === String(active.id))
 
       if (isLooseTab) {
-        if (over.id === 'favorites-droppable' || sortedFavorites.some((f) => String(f.id) === String(over.id))) {
+       if (over.id === 'favorites-droppable' ||sortedFavorites.some((f) => String(f.id) === String(over.id)) ||String(over.id).startsWith('fav-folder-')) {
           const tab = sortedLooseTabs.find((t) => String(t.id) === String(active.id))
-          if (tab) addFavorite(tab); return
+            if (tab) {
+                const parentId = String(over.id).startsWith('fav-folder-')
+                ? String(over.id).replace('fav-folder-', '')
+                : undefined
+                addFavorite(tab, parentId)
+            }
+            return
         }
         if (over.id === 'pinned-droppable' || sortedPins.some((p) => String(p.id) === String(over.id))) {
           const tab = sortedLooseTabs.find((t) => String(t.id) === String(active.id))
           if (tab) pinUrl(tab); return
         }
-       const overIsLoose = sortedLooseTabs.some((t) => String(t.id) === String(over.id))
+        const overIsLoose = sortedLooseTabs.some((t) => String(t.id) === String(over.id))
         if (overIsLoose) {
           const oi = sortedLooseTabs.findIndex((t) => String(t.id) === String(active.id))
           const ni = sortedLooseTabs.findIndex((t) => String(t.id) === String(over.id))
           if (oi !== -1 && ni !== -1) reorderTabs(arrayMove(sortedLooseTabs, oi, ni).map((t) => t.id))
         }
       } else if (isFav) {
+        // Drag into a folder header/body
+        if (String(over.id).startsWith('fav-folder-')) {
+          const folderId = String(over.id).replace('fav-folder-', '')
+          moveFavorite(active.id, folderId)
+          return
+        }
+        // Drag over another favorite that's inside a folder — move into that folder
+        const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
+        const activeFav = sortedFavorites.find((f) => String(f.id) === String(active.id))
+        if (overFav && activeFav && overFav.parentId !== activeFav.parentId) {
+          moveFavorite(active.id, overFav.parentId)
+          return
+        }
+        // Same-parent reorder (top-level among top-level, or within same folder)
         const oi = sortedFavorites.findIndex((f) => String(f.id) === String(active.id))
         const ni = sortedFavorites.findIndex((f) => String(f.id) === String(over.id))
         if (oi !== -1 && ni !== -1) reorderFavorites(arrayMove(sortedFavorites, oi, ni).map((f) => f.id))
@@ -199,7 +228,7 @@ export default function App() {
       }
     },
     [sortedLooseTabs, sortedFavorites, sortedPins,
-     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl]
+     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl, moveFavorite]
   )
 
   if (loading) return <div className="loading-state">Loading…</div>
@@ -226,7 +255,7 @@ export default function App() {
         </div>
         {sortedFavs.length > 0 && (
           <div className="rail-favs">
-            {sortedFavs.map((fav) => <RailFav key={fav.id} fav={fav} onOpen={activateFavoriteUrl} />)}
+            {sortedFavs.map((fav) => <RailFav key={fav.id} fav={fav} onOpen={activateFavorite} />)}
           </div>
         )}
       </div>
@@ -269,8 +298,8 @@ export default function App() {
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={tabs} />}
-        <FavoritesBar favorites={sortedFavorites} accentColor={accentColor} />
+        {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={windowTabs} />}
+        <FavoritesBar favorites={sortedFavorites} folders={favoriteFolders} accentColor={accentColor} />
 
         <div className="tabs-area" ref={tabsAreaRef}>
           <div className="section">
@@ -290,8 +319,8 @@ export default function App() {
 
         <DragOverlay>
           {activeDragTab && <div style={{ opacity: 0.85, transform: 'scale(1.02)', cursor: 'grabbing' }}><TabItem tab={activeDragTab} isActive={activeDragTab.id === activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} /></div>}
-          {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavTile fav={activeDragFav} isDragging accentColor={accentColor} /></div>}
-          {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={tabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
+          {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavoriteRow fav={activeDragFav} accentColor={accentColor} /></div>}
+          {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={windowTabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
         </DragOverlay>
       </DndContext>
 

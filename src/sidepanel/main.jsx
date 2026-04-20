@@ -4,18 +4,13 @@ import App from './App'
 import useStore from './store'
 import './sidepanel.css'
 
-// ── Phase 1: Multi-Window support ─────────────────────────────────────────────
-// Each sidepanel instance belongs to exactly one browser window.
-// We learn which one via a URL query param set by the SW on windows.onCreated,
-// with a fallback to chrome.windows.getCurrent() when the param is missing
-// (first-run, existing windows at install time, or any setOptions race).
-
+// Phase 1: detect which browser window this sidepanel instance belongs to.
+// The SW sets ?windowId=N on new windows via sidePanel.setOptions.
+// Fallback: chrome.windows.getCurrent() (for pre-existing windows at install,
+// or any race where setOptions hasn't applied yet).
 async function detectMyWindowId() {
-  const params = new URLSearchParams(location.search)
-  const fromUrl = params.get('windowId')
-  if (fromUrl && !Number.isNaN(Number(fromUrl))) {
-    return Number(fromUrl)
-  }
+  const fromUrl = new URLSearchParams(location.search).get('windowId')
+  if (fromUrl && !Number.isNaN(Number(fromUrl))) return Number(fromUrl)
   try {
     const w = await chrome.windows.getCurrent()
     return w?.id ?? null

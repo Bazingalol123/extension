@@ -11,12 +11,11 @@ import { getFaviconSrc, getFaviconFallback } from '@shared/utils.js'
 export default function TabItem({ tab, isActive, accentColor, spaces, activeSpaceId, isDuplicate }) {
   const {
     activateTab, closeTab, moveTabToSpace, duplicateTab,
-    muteTab, addFavorite, pinUrl,
-     suspendTab,
+    muteTab, addFavorite, pinUrl, suspendTab,
   } = useStore()
 
   const [imgError, setImgError] = useState(false)
-  const [ctxMenu, setCtxMenu]   = useState(null) // { x, y, showMove, showFolderMove }
+  const [ctxMenu, setCtxMenu]   = useState(null) // { x, y, showMove }
   const ctxRef = useRef(null)
 
   const favicon  = getFaviconSrc(tab.favIconUrl)
@@ -125,7 +124,7 @@ export default function TabItem({ tab, isActive, accentColor, spaces, activeSpac
                 </div>
               ))}
             </>
-          ) : (
+          ) :  (
             <>
               <div className="context-item" onClick={() => { duplicateTab(tab.id); setCtxMenu(null) }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

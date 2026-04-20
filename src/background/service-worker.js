@@ -12,11 +12,46 @@
 import { Messages } from '@shared/messages.js';
 import { urlsMatch } from '@shared/utils.js';
 import {
-  ensureFavoritesRoot,
+  ensureBookmarksReady,
   readFavoritesTree,
+  createBookmark,
+  createFolder,
+  removeBookmark,
+  removeFolder,
+  updateBookmark,
+  moveBookmark,
   setBookmarkChangeCallback,
+  getRootId,
   cacheFavicon,
 } from '@shared/bookmarksAdapter.js';
+
+// ─── DIAGNOSTIC LOGGING ──────────────────────────────────────────────────────
+// Writes persistent log entries to chrome.storage.local.arcDebugLog.
+// Ring buffer of last 200 entries. Survives SW restarts and Brave exits.
+// Remove when crash is fixed.
+const _dbgStart = Date.now();
+async function dbg(tag, data) {
+  try {
+    const entry = {
+      t: Date.now() - _dbgStart,
+      abs: new Date().toISOString(),
+      tag,
+      data: data === undefined ? null : (() => {
+        try { return JSON.parse(JSON.stringify(data)); } catch { return String(data); }
+      })(),
+    };
+    const stored = await chrome.storage.local.get('arcDebugLog');
+    const log = Array.isArray(stored.arcDebugLog) ? stored.arcDebugLog : [];
+    log.push(entry);
+    if (log.length > 200) log.splice(0, log.length - 200);
+    await chrome.storage.local.set({ arcDebugLog: log });
+  } catch (e) {
+    // swallow — never let logging break anything
+  }
+}
+
+// SW top-level marker — fires every time SW starts
+dbg('SW_START', { ts: Date.now() });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,13 +99,14 @@ let state = {
   spaces: [], activeSpaceId: '', tabs: [], favorites: [],
   pinnedUrls: [], recentlyClosed: [],
   sidebarCollapsed: false, darkMode: 'auto',
-  // Phase 2b: bookmarks-backed favorites
-  favoritesRootId:     null,  // bookmark folder id for "My Favorites"
-  favoritesMigrated:   false, // one-shot: moves old state.favorites into bookmarks
-  favoriteFolders:     [],    // depth-0 folders under root (derived from bookmarks)
-  favoriteFolderState: {},    // folderId → collapsed (UI state, persisted)
-  faviconCache:        {},    // url → favIconUrl (bookmarks API has no favicons)
-  faviconCacheKeys:    [],    // insertion order, for LRU eviction
+  // Phase 2b-A: bookmarks-backed favorites
+  favoritesRootId:   null,   // bookmark folder id
+  favoritesMigrated: false,  // one-shot migration flag
+  bookmarksFailed:   false,  // true if init fails; UI shows warning
+  faviconCache:      {},     // url → favIconUrl
+  faviconCacheKeys:  [],     // LRU order
+  favoriteOwnerships:  [],    // FavoriteOwnership[]
+  lastShutdownTime:    0,
 };
 let stateReady     = false;
 let tabAccessOrder = [];
@@ -78,6 +114,7 @@ let tabAccessOrder = [];
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
 async function loadState() {
+  await dbg('loadState:begin');
   const stored = await chrome.storage.local.get('arcState');
   if (stored.arcState?.spaces?.length > 0) {
     const saved = stored.arcState;
@@ -96,8 +133,14 @@ async function loadState() {
     state = {
         favorites:[], pinnedUrls:[], recentlyClosed:[],
         sidebarCollapsed:false, darkMode:'auto',
-        ...saved, spaces: migratedSpaces, pinnedUrls: globalPins,
+        // Phase 3: ensure arrays/objects exist on upgrade from pre-Phase-3 state
+        favoriteOwnerships: [],
+        lastShutdownTime: 0,
+        ...saved,
+        spaces: migratedSpaces, pinnedUrls: globalPins,
         recentlyClosed: saved.recentlyClosed || [],
+        favoriteOwnerships: Array.isArray(saved.favoriteOwnerships) ? saved.favoriteOwnerships : [],
+        lastShutdownTime: typeof saved.lastShutdownTime === 'number' ? saved.lastShutdownTime : 0,
     };
     tabAccessOrder = saved.tabAccessOrder || [];
   } else {
@@ -112,9 +155,7 @@ async function loadState() {
   const missing = state.tabs.filter((t) => !tabAccessOrder.includes(t.id)).sort((a,b)=>b.openedAt-a.openedAt).map((t)=>t.id);
   tabAccessOrder = [...missing, ...tabAccessOrder].slice(0, MAX_MRU);
 
-  // Phase 1: backfill windowId on any tabs that lack it (pre-Phase-1 state).
-  // syncTabs() handles the live reconciliation elsewhere; this covers the
-  // case where loadState runs and there are saved tabs without windowId.
+  // Phase 1: backfill windowId on any tabs missing it (pre-Phase-1 state).
   if (state.tabs.some((t) => t.windowId === undefined || t.windowId === -1)) {
     try {
       const liveTabs = await chrome.tabs.query({});
@@ -130,70 +171,164 @@ async function loadState() {
     } catch (_) { /* non-fatal — syncTabs will retry */ }
   }
 
-  // Phase 2b: bookmarks-backed favorites initialization
-  try {
-    // 1. Ensure our "My Favorites" folder exists
-    state.favoritesRootId = await ensureFavoritesRoot(state.favoritesRootId);
-
-    // 2. Ensure cache containers exist (in case saved state is pre-Phase-2b)
-    if (!state.faviconCache || typeof state.faviconCache !== 'object' || Array.isArray(state.faviconCache)) {
-      state.faviconCache = {};
-    }
-    if (!Array.isArray(state.faviconCacheKeys)) state.faviconCacheKeys = [];
-    if (!state.favoriteFolderState || typeof state.favoriteFolderState !== 'object') {
-      state.favoriteFolderState = {};
-    }
-
-    // 3. One-shot migration: old state.favorites → chrome.bookmarks
-    if (!state.favoritesMigrated && Array.isArray(state.favorites) && state.favorites.length > 0) {
-      const existingChildren = await chrome.bookmarks.getChildren(state.favoritesRootId).catch(() => []);
-      const existingUrls = new Set(existingChildren.filter((c) => c.url).map((c) => c.url));
-      for (const fav of state.favorites) {
-        if (!fav.url || existingUrls.has(fav.url)) continue;
-        try {
-          await chrome.bookmarks.create({
-            parentId: state.favoritesRootId,
-            title:    fav.title || '',
-            url:      fav.url,
-          });
-          if (fav.favIconUrl) {
-            cacheFavicon(state.faviconCache, state.faviconCacheKeys, fav.url, fav.favIconUrl);
-          }
-        } catch (e) {
-          console.warn('Arc: favorite migration failed for', fav.url, e);
-        }
-      }
-      state.favorites = [];
-      state.favoritesMigrated = true;
-    }
-
-    // 4. Rebuild favorites + folder arrays from bookmarks tree
-    const { favorites, folders } = await readFavoritesTree(state.favoritesRootId, state.faviconCache);
-    state = { ...state, favorites, favoriteFolders: folders };
-
-    // 5. Hook up change callback — ONLY done here, once per SW lifetime
-    setBookmarkChangeCallback(rebuildFavoritesFromBookmarks);
-  } catch (e) {
-    console.error('Arc: bookmarks init failed:', e);
-  }
-
   stateReady = true;
+  // Phase 3: reconcile ownerships on SW boot (idle expiration + dead tab pruning)
+  await reconcileOwnershipsOnStartup();
+  await dbg('loadState:end', { tabCount: state.tabs.length, spaceCount: state.spaces.length });
+}
+
+// ─── Phase 2b: Lazy bookmarks init ───────────────────────────────────────────
+
+let _bookmarksInitPromise = null;
+
+/**
+ * Ensure bookmarks subsystem is ready. Idempotent.
+ * Called from GET_STATE handler and from every bookmark-mutating operation.
+ * On failure, sets state.bookmarksFailed and returns false; caller uses
+ * existing in-memory state as read-only fallback.
+ */
+
+
+// ─── Phase 3: Favorite ownership ─────────────────────────────────────────────
+
+/**
+ * Find an ownership entry for {favId, windowId}, or null.
+ */
+function findOwnership(favId, windowId) {
+  return state.favoriteOwnerships.find(o => o.favId === favId && o.windowId === windowId) || null;
 }
 
 /**
- * Rebuild state.favorites + state.favoriteFolders from the live bookmarks tree,
- * then persist + broadcast. Called on bookmark events and after our own mutations.
+ * Find the ownership entry that owns a given tab id, or null.
  */
-async function rebuildFavoritesFromBookmarks() {
-  if (!state.favoritesRootId) return;
+function findOwnershipByTab(tabId) {
+  return state.favoriteOwnerships.find(o => o.tabId === tabId) || null;
+}
+
+/**
+ * Bind a favorite to a tab in a window.
+ */
+function bindOwnership(favId, windowId, tabId) {
+  // Remove any prior binding for this {favId, windowId}
+  const filtered = state.favoriteOwnerships.filter(o => !(o.favId === favId && o.windowId === windowId));
+  state = { ...state, favoriteOwnerships: [...filtered, { favId, windowId, tabId, drifted: false, boundAt: Date.now() }] };
+}
+
+/**
+ * Release a binding.
+ */
+function releaseOwnership(favId, windowId) {
+  state = { ...state, favoriteOwnerships: state.favoriteOwnerships.filter(o => !(o.favId === favId && o.windowId === windowId)) };
+}
+
+/**
+ * Release ownership by tab id (used when Brave closes a tab).
+ */
+function releaseOwnershipByTab(tabId) {
+  state = { ...state, favoriteOwnerships: state.favoriteOwnerships.filter(o => o.tabId !== tabId) };
+}
+
+/**
+ * Run on SW startup — check idle expiration and clean up dead tab ids.
+ */
+async function reconcileOwnershipsOnStartup() {
   try {
-    const { favorites, folders } = await readFavoritesTree(state.favoritesRootId, state.faviconCache);
-    state = { ...state, favorites, favoriteFolders: folders };
-    await saveState();
+    // 1. Idle expiration
+    const settings = (await chrome.storage.local.get('arcSettings')).arcSettings || {};
+    const idleMinutes = settings.idleMinutes ?? 30;
+    const now = Date.now();
+    if (idleMinutes > 0 && state.lastShutdownTime > 0 && state.favoriteOwnerships.length > 0) {
+      const elapsedMin = (now - state.lastShutdownTime) / 60000;
+      if (elapsedMin > idleMinutes) {
+        // Close all owned tabs, clear bindings
+        for (const o of state.favoriteOwnerships) {
+          await chrome.tabs.remove(o.tabId).catch(() => {});
+        }
+        state = { ...state, favoriteOwnerships: [] };
+        await saveState();
+        return;
+      }
+    }
+
+    // 2. Prune bindings for tabs that no longer exist (e.g. Brave was force-killed)
+    if (state.favoriteOwnerships.length > 0) {
+      const liveTabs = await chrome.tabs.query({});
+      const liveIds = new Set(liveTabs.map(t => t.id));
+      const stillValid = state.favoriteOwnerships.filter(o => liveIds.has(o.tabId));
+      if (stillValid.length !== state.favoriteOwnerships.length) {
+        state = { ...state, favoriteOwnerships: stillValid };
+        await saveState();
+      }
+    }
   } catch (e) {
-    console.warn('Arc: favorites rebuild failed:', e);
+    console.warn('Arc: ownership reconciliation failed:', e);
   }
 }
+async function ensureBookmarksInitialized() {
+  if (state.favoritesRootId && getRootId() === state.favoritesRootId) return true;
+  if (state.bookmarksFailed) return false;
+  if (_bookmarksInitPromise) return _bookmarksInitPromise;
+
+  _bookmarksInitPromise = (async () => {
+    try {
+      const result = await ensureBookmarksReady(state.favoritesRootId);
+      if (!result.ok) {
+        state = { ...state, bookmarksFailed: true };
+        await saveState();
+        return false;
+      }
+
+      state = { ...state, favoritesRootId: result.rootId, bookmarksFailed: false };
+
+      if (!state.faviconCache || typeof state.faviconCache !== 'object' || Array.isArray(state.faviconCache)) {
+        state.faviconCache = {};
+      }
+      if (!Array.isArray(state.faviconCacheKeys)) state.faviconCacheKeys = [];
+      if (!state.favoriteFolderState || typeof state.favoriteFolderState !== 'object') {
+        state.favoriteFolderState = {};
+      }
+
+      // One-shot migration: MOVE legacy favorites into bookmarks
+      if (!state.favoritesMigrated && Array.isArray(state.favorites) && state.favorites.length > 0) {
+        const existingChildren = await chrome.bookmarks.getChildren(state.favoritesRootId).catch(() => []);
+        const existingUrls = new Set(existingChildren.filter((c) => c.url).map((c) => c.url));
+        for (const fav of state.favorites) {
+          if (!fav.url || existingUrls.has(fav.url)) continue;
+          const created = await createBookmark(fav.url, fav.title || '');
+          if (created && fav.favIconUrl) {
+            cacheFavicon(state.faviconCache, state.faviconCacheKeys, fav.url, fav.favIconUrl);
+          }
+        }
+        state = { ...state, favorites: [], favoritesMigrated: true };
+      }
+
+      setBookmarkChangeCallback(rebuildFavoritesFromBookmarks);
+      await rebuildFavoritesFromBookmarks();
+      return true;
+    } catch (e) {
+      console.warn('Arc: bookmarks init failed:', e);
+      state = { ...state, bookmarksFailed: true };
+      await saveState();
+      return false;
+    } finally {
+      _bookmarksInitPromise = null;
+    }
+  })();
+
+  return _bookmarksInitPromise;
+}
+
+async function rebuildFavoritesFromBookmarks() {
+  if (!state.favoritesRootId) return;
+  const { favorites, folders } = await readFavoritesTree(state.faviconCache);
+  state = { ...state, favorites, favoriteFolders: folders };
+  await saveState();
+}
+
+
+
+
+
 
 async function saveState() {
   await chrome.storage.local.set({ arcState: { ...state, tabAccessOrder } });
@@ -234,7 +369,7 @@ async function syncTabs() {
     const ex = state.tabs.find((t) => t.id === ct.id);
     if (ex) updateTab(ct.id, {
       title: ct.title||ex.title, url: ct.url||ex.url,
-      favIconUrl: ct.favIconUrl?ex.favIconUrl:ex.favIconUrl, pinned: ct.pinned,
+      favIconUrl: ct.favIconUrl||ex.favIconUrl, pinned: ct.pinned,
       muted: ct.mutedInfo?.muted||false,
       windowId: ct.windowId ?? ex.windowId ?? -1,
     });
@@ -247,13 +382,60 @@ async function syncTabs() {
 chrome.tabs.onCreated.addListener(async (tab) => {
   stateReady || (await loadState());
   const url = tab.pendingUrl || tab.url || '';
-  if (url === 'chrome://newtab/' || url === 'chrome://new-tab-page/' || url === 'brave://newtab/' || url === chrome.runtime.getURL('newtab/index.html')) {
-    try {
-      if (tab.id) await chrome.tabs.remove(tab.id);
-      openNewTabModalPopup();
-      return;
-    } catch (_) {}
-  }
+  
+    if (url === 'chrome://newtab/' || url === 'chrome://new-tab-page/' || url === 'brave://newtab/' || url === chrome.runtime.getURL('newtab/index.html')) {
+        try {
+        const msSinceSwStart = Date.now() - _dbgStart;
+        const tabsInWindow = await chrome.tabs.query({ windowId: tab.windowId });
+        const allTabs = await chrome.tabs.query({});
+        const allWindows = await chrome.windows.getAll({ populate: false });
+        await dbg('newtab:intercept-check', {
+            msSinceSwStart,
+            thisTabId: tab.id,
+            thisTabWindowId: tab.windowId,
+            tabsInWindowCount: tabsInWindow.length,
+            tabsInWindow: tabsInWindow.map(t => ({ id: t.id, url: t.url, pendingUrl: t.pendingUrl, windowId: t.windowId })),
+            allTabsCount: allTabs.length,
+            allTabs: allTabs.map(t => ({ id: t.id, url: t.url, windowId: t.windowId })),
+            allWindowsCount: allWindows.length,
+            allWindows: allWindows.map(w => ({ id: w.id, type: w.type, state: w.state })),
+        });
+
+        // NEW GUARD — multiple conditions must all pass:
+        // 1. SW has been alive for > 2 seconds (not cold start)
+        // 2. This window has more than 1 tab
+        // 3. There are other non-newtab tabs in this window
+        const isStartup = msSinceSwStart < 2000;
+        const hasOtherRealTabs = tabsInWindow.some(t =>
+            t.id !== tab.id &&
+            t.url &&
+            !t.url.startsWith('chrome://newtab') &&
+            !t.url.startsWith('brave://newtab')
+        );
+
+        if (!isStartup && hasOtherRealTabs) {
+            await dbg('newtab:intercepting', { tabId: tab.id });
+            if (tab.id) await chrome.tabs.remove(tab.id);
+            openNewTabModalPopup();
+            return;
+        } else {
+            await dbg('newtab:skipping', { reason: isStartup ? 'startup-grace' : 'no-other-real-tabs' });
+        }
+        } catch (e) {
+        await dbg('newtab:error', { msg: String(e) });
+        }
+    }
+    // Phase 3: auto-reown on Shift+Alt+T reopen
+    if (tab.id && tab.url && tab.windowId != null) {
+        const matchingFav = state.favorites.find(f => f.url === tab.url);
+        if (matchingFav) {
+        const existing = findOwnership(matchingFav.id, tab.windowId);
+        if (!existing) {
+            bindOwnership(matchingFav.id, tab.windowId, tab.id);
+            // state save happens below via existing code path
+        }
+        }
+    }
   const n = normalizeTab(tab);
   if (n) { state = { ...state, tabs: [...state.tabs.filter((t) => t.id !== tab.id), n] }; await saveState(); }
 });
@@ -268,12 +450,32 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.mutedInfo !== undefined) ch.muted = changeInfo.mutedInfo.muted;
     if (changeInfo.status === 'loading') ch.suspended = false;
     if (Object.keys(ch).length) updateTab(tabId, ch);
+    // Phase 3: drift detection for owned tabs
+    if (tab.url) {
+      const ownership = findOwnershipByTab(tabId);
+      if (ownership) {
+        const fav = state.favorites.find(f => f.id === ownership.favId);
+        if (fav) {
+          const isDriftedNow = !urlsMatch(fav.url, tab.url);
+          if (isDriftedNow !== ownership.drifted) {
+            state = {
+              ...state,
+              favoriteOwnerships: state.favoriteOwnerships.map(o =>
+                o.favId === ownership.favId && o.windowId === ownership.windowId
+                  ? { ...o, drifted: isDriftedNow }
+                  : o
+              ),
+            };
+          }
+        }
+      }
+    }
     if (changeInfo.favIconUrl || changeInfo.title) {
       state = { ...state, pinnedUrls: state.pinnedUrls.map((p) => urlsMatch(p.url, tab.url||'') ?
-{ ...p, favIconUrl: changeInfo.favIconUrl||p.favIconUrl, title: changeInfo.title||p.title } : p) };
+    { ...p, favIconUrl: changeInfo.favIconUrl||p.favIconUrl, title: changeInfo.title||p.title } : p) };
 
-      // Phase 2b: cache favicon for any matching favorite, update in place for immediate UI
-      if (changeInfo.favIconUrl && tab.url) {
+      // Phase 2b: cache favicon for any matching favorite (bookmarks API has no favicons)
+      if (changeInfo.favIconUrl && tab.url && state.favorites.length > 0) {
         const matchingFav = state.favorites.find((f) => urlsMatch(f.url, tab.url));
         if (matchingFav) {
           cacheFavicon(state.faviconCache, state.faviconCacheKeys, matchingFav.url, changeInfo.favIconUrl);
@@ -295,6 +497,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   stateReady || (await loadState());
+  // Phase 3: if this tab was owned by a favorite, release the ownership
+  if (findOwnershipByTab(tabId)) {
+    releaseOwnershipByTab(tabId);
+  }
   const closingTab = state.tabs.find((t) => t.id === tabId);
   if (closingTab && !isInternal(closingTab.url)) {
     state = { ...state, recentlyClosed: [{ id: crypto.randomUUID(), title: closingTab.title, url: closingTab.url, favIconUrl: closingTab.favIconUrl, spaceId: closingTab.spaceId, closedAt: Date.now() }, ...state.recentlyClosed].slice(0, MAX_CLOSED) };
@@ -324,13 +530,12 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   captureCurrentTab(800).catch(() => {});
 });
 
+
 // ─── Phase 1: Multi-Window wiring ─────────────────────────────────────────────
 
 /**
- * When a tab is moved into a different window (e.g., user drags it out to
- * create a new window, or drops it into another window), Chrome fires
- * onAttached with the new windowId. We update the tab's ownership so the
- * correct sidepanel picks it up.
+ * When a tab is attached to a different window (user drags it out to create
+ * a new window, or drops it in another window), update windowId in state.
  */
 chrome.tabs.onAttached.addListener(async (tabId, { newWindowId }) => {
   stateReady || (await loadState());
@@ -342,12 +547,15 @@ chrome.tabs.onAttached.addListener(async (tabId, { newWindowId }) => {
 });
 
 /**
- * When a new normal browser window opens, tell the sidepanel for THAT window
- * to load with its windowId baked into the URL. The sidepanel reads it from
- * location.search on mount, which lets it filter tabs to just this window.
+ * When a new normal browser window opens, set its sidepanel options so the
+ * sidepanel URL carries ?windowId=N. The sidepanel reads this on mount via
+ * location.search and filters tabs to just its own window.
  *
- * Popups, devtools, and app windows are skipped — they aren't normal browsing
- * contexts and we don't want to target them.
+ * Popups, devtools, and app windows are skipped.
+ *
+ * We deliberately do NOT run this in a loop at SW startup — any windows that
+ * existed before the SW woke will fall back to chrome.windows.getCurrent()
+ * inside the sidepanel's main.jsx (that fallback works fine).
  */
 chrome.windows.onCreated.addListener(async (win) => {
   if (!win?.id || win.type !== 'normal') return;
@@ -357,37 +565,12 @@ chrome.windows.onCreated.addListener(async (win) => {
       path: `sidepanel.html?windowId=${win.id}`,
       enabled: true,
     });
-  } catch (_) {
-    // Older browsers or permission issues — sidepanel falls back to
-    // chrome.windows.getCurrent() inside main.jsx, so this is non-fatal.
-  }
+  } catch (_) { /* non-fatal — getCurrent() fallback covers it */ }
 });
 
-/**
- * On every service-worker startup, ensure ALL currently-open normal windows
- * have their sidepanel path set correctly. Handles:
- *   - Fresh install: all pre-existing windows get set up
- *   - Browser restart: all restored windows get set up
- *   - SW wake after suspension: idempotent re-set (cheap)
- */
-async function initializePerWindowSidePanels() {
-  try {
-    const windows = await chrome.windows.getAll({ populate: false });
-    for (const w of windows) {
-      if (!w.id || w.type !== 'normal') continue;
-      try {
-        await chrome.sidePanel.setOptions({
-          windowId: w.id,
-          path: `sidepanel.html?windowId=${w.id}`,
-          enabled: true,
-        });
-      } catch (_) { /* non-fatal, see fallback */ }
-    }
-  } catch (_) { /* non-fatal */ }
-}
 
-// Kick off once at SW boot. Safe to call before loadState — doesn't touch state.
-initializePerWindowSidePanels();
+
+
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
@@ -404,6 +587,16 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.action.onClicked.addListener(async (tab) => { if (tab.id) await chrome.sidePanel.open({ tabId: tab.id }); });
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+
+// Phase 3: track Brave shutdown for idle expiration calculation
+chrome.windows.onRemoved.addListener(async () => {
+  const windows = await chrome.windows.getAll().catch(() => []);
+  if (windows.length === 0) {
+    // Last window closed → treat as Brave shutdown
+    state = { ...state, lastShutdownTime: Date.now() };
+    await saveState();
+  }
+});
 
 // ─── Message router ───────────────────────────────────────────────────────────
 
@@ -467,7 +660,12 @@ async function handleMessage(message) {
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    case Messages.GET_STATE: { await syncTabs(); await saveState(); return { ...state, tabAccessOrder }; }
+    case Messages.GET_STATE: {
+      // Kick off bookmarks init without blocking. Sidepanel receives favorites
+      // via a STATE_UPDATED broadcast once init completes.
+      ensureBookmarksInitialized().catch(() => {});
+      return state;
+    }
     case Messages.GET_SETTINGS: { const s = await chrome.storage.local.get('arcSettings'); return s.arcSettings || { searchEngine:'brave', darkMode:'auto', suspendAfterMinutes:0 }; }
     case Messages.UPDATE_SETTINGS: { const c=(await chrome.storage.local.get('arcSettings')).arcSettings||{}; const u={...c,...message.settings}; await chrome.storage.local.set({arcSettings:u}); if(message.settings.darkMode!==undefined){state={...state,darkMode:message.settings.darkMode};await saveState();} return u; }
     case Messages.SET_DARK_MODE: { state={...state,darkMode:message.darkMode}; await saveState(); return state; }
@@ -487,7 +685,7 @@ async function handleMessage(message) {
       const rem=state.spaces.filter((s)=>s.id!==message.spaceId);
       const nA=state.activeSpaceId===message.spaceId?rem[0].id:state.activeSpaceId;
       await Promise.all(state.tabs.filter((t)=>t.spaceId===message.spaceId).map((t)=>chrome.tabs.remove(t.id).catch(()=>{})));
-      state={...state,spaces:rem,activeSpaceId:nA,tabs:state.tabs.filter((t)=>t.spaceId!==message.spaceId),folders:state.folders.filter((f)=>f.spaceId!==message.spaceId)};
+      state={...state,spaces:rem,activeSpaceId:nA,tabs:state.tabs.filter((t)=>t.spaceId!==message.spaceId)};
       await saveState(); return state;
     }
 
@@ -515,91 +713,128 @@ async function handleMessage(message) {
    // ── Favorites (bookmarks-backed, Phase 2b) ────────────────────────────────
 
     case Messages.ADD_FAVORITE: {
-      if (!state.favoritesRootId) return state;
-      if (state.favorites.find((f) => urlsMatch(f.url, message.url))) return state;
-      try {
-        await chrome.bookmarks.create({
-          parentId: message.parentId || state.favoritesRootId,
-          title:    message.title || '',
-          url:      message.url,
-        });
-        if (message.favIconUrl) {
-          cacheFavicon(state.faviconCache, state.faviconCacheKeys, message.url, message.favIconUrl);
-        }
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: ADD_FAVORITE failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      const created = await createBookmark(message.url, message.title || '', message.parentId);
+      if (created && message.favIconUrl) {
+        cacheFavicon(state.faviconCache, state.faviconCacheKeys, message.url, message.favIconUrl);
+      }
+      await rebuildFavoritesFromBookmarks();
       return state;
     }
 
     case Messages.REMOVE_FAVORITE: {
-      try {
-        // message.id is a bookmark node id (or a UUID from legacy, which will just fail harmlessly)
-        await chrome.bookmarks.remove(message.id);
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: REMOVE_FAVORITE failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await removeBookmark(message.id);
+      await rebuildFavoritesFromBookmarks();
       return state;
     }
 
     case Messages.REORDER_FAVORITES: {
-      // bookmarks.move has no batch; move each to its target index in order.
-      try {
-        for (let i = 0; i < message.ids.length; i++) {
-          await chrome.bookmarks.move(message.ids[i], { index: i }).catch(() => {});
-        }
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: REORDER_FAVORITES failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      for (let i = 0; i < message.ids.length; i++) {
+        await moveBookmark(message.ids[i], { index: i });
+      }
+      await rebuildFavoritesFromBookmarks();
       return state;
     }
 
     case Messages.RENAME_FAVORITE: {
-      try {
-        await chrome.bookmarks.update(message.id, { title: message.title });
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: RENAME_FAVORITE failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await updateBookmark(message.id, { title: message.title });
+      await rebuildFavoritesFromBookmarks();
       return state;
     }
 
     case Messages.MOVE_FAVORITE: {
-      try {
-        const dest = {};
-        if (message.parentId) dest.parentId = message.parentId;
-        if (typeof message.index === 'number') dest.index = message.index;
-        await chrome.bookmarks.move(message.id, dest);
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: MOVE_FAVORITE failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await moveBookmark(message.id, { parentId: message.parentId, index: message.index });
+      await rebuildFavoritesFromBookmarks();
       return state;
     }
 
     case Messages.CREATE_FAVORITE_FOLDER: {
-      if (!state.favoritesRootId) return state;
-      try {
-        await chrome.bookmarks.create({
-          parentId: state.favoritesRootId,
-          title:    message.title || 'New folder',
-        });
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: CREATE_FAVORITE_FOLDER failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await createFolder(message.title || 'New folder');
+      await rebuildFavoritesFromBookmarks();
       return state;
     }
 
     case Messages.DELETE_FAVORITE_FOLDER: {
-      try {
-        await chrome.bookmarks.removeTree(message.id);
-        // Clean up collapsed state for the deleted folder
-        if (state.favoriteFolderState[message.id] !== undefined) {
-          const { [message.id]: _, ...rest } = state.favoriteFolderState;
-          state = { ...state, favoriteFolderState: rest };
-        }
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: DELETE_FAVORITE_FOLDER failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await removeFolder(message.id);
+      if (state.favoriteFolderState[message.id] !== undefined) {
+        const { [message.id]: _, ...rest } = state.favoriteFolderState;
+        state = { ...state, favoriteFolderState: rest };
+      }
+      await rebuildFavoritesFromBookmarks();
       return state;
     }
 
     case Messages.RENAME_FAVORITE_FOLDER: {
-      try {
-        await chrome.bookmarks.update(message.id, { title: message.title });
-        await rebuildFavoritesFromBookmarks();
-      } catch (e) { console.warn('Arc: RENAME_FAVORITE_FOLDER failed:', e); }
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      await updateBookmark(message.id, { title: message.title });
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+
+
+    case Messages.ACTIVATE_FAVORITE: {
+      const { favId, windowId } = message;
+      const existing = findOwnership(favId, windowId);
+      if (existing) {
+        // Already owns a tab in this window → just activate it
+        await chrome.tabs.update(existing.tabId, { active: true }).catch(() => {});
+        await chrome.windows.update(windowId, { focused: true }).catch(() => {});
+        // If drifted, reset drift — user's click is an implicit accept? No — click is disabled on drifted.
+        // Don't reach here if drifted (UI blocks it). But defensive: only clear drift on explicit reset.
+        return state;
+      }
+      // Create new tab in the target window
+      const fav = state.favorites.find(f => f.id === favId);
+      if (!fav) return state;
+      const newTab = await chrome.tabs.create({ url: fav.url, windowId, active: true }).catch(() => null);
+      if (newTab?.id) {
+        bindOwnership(favId, windowId, newTab.id);
+        await saveState();
+      }
+      return state;
+    }
+
+    case Messages.DEACTIVATE_FAVORITE: {
+      const { favId, windowId } = message;
+      const existing = findOwnership(favId, windowId);
+      if (!existing) return state;
+      await chrome.tabs.remove(existing.tabId).catch(() => {});
+      // releaseOwnership will also be triggered by onRemoved, but do it here so
+      // state updates immediately without waiting for the async event
+      releaseOwnership(favId, windowId);
+      await saveState();
+      return state;
+    }
+
+    case Messages.RESET_FAVORITE_DRIFT: {
+      const { favId, windowId } = message;
+      const existing = findOwnership(favId, windowId);
+      if (!existing) return state;
+      const fav = state.favorites.find(f => f.id === favId);
+      if (!fav) return state;
+      await chrome.tabs.update(existing.tabId, { url: fav.url }).catch(() => {});
+      state = {
+        ...state,
+        favoriteOwnerships: state.favoriteOwnerships.map(o =>
+          o.favId === favId && o.windowId === windowId ? { ...o, drifted: false } : o
+        ),
+      };
+      await saveState();
       return state;
     }
 
@@ -620,6 +855,15 @@ async function handleMessage(message) {
     case Messages.UNPIN_URL: { state={...state,pinnedUrls:state.pinnedUrls.filter((p)=>p.id!==message.pinId)}; await saveState(); return state; }
     case Messages.REORDER_PINS: { state={...state,pinnedUrls:message.ids.map((id,i)=>{const p=state.pinnedUrls.find((p)=>p.id===id);return p?{...p,order:i}:null;}).filter(Boolean)}; await saveState(); return state; }
 
+    // ── Folders ───────────────────────────────────────────────────────────────
+
+    // case Messages.CREATE_FOLDER: { const f={id:crypto.randomUUID(),name:message.name||'New Folder',tabIds:message.tabIds||[],collapsed:false,spaceId:message.spaceId||state.activeSpaceId,order:state.folders.filter((f)=>f.spaceId===(message.spaceId||state.activeSpaceId)).length}; state={...state,folders:[...state.folders,f]}; await saveState(); return state; }
+    // case Messages.DELETE_FOLDER: { state={...state,folders:state.folders.filter((f)=>f.id!==message.folderId)}; await saveState(); return state; }
+    // case Messages.RENAME_FOLDER: { state={...state,folders:state.folders.map((f)=>f.id===message.folderId?{...f,name:message.name}:f)}; await saveState(); return state; }
+    // case Messages.TOGGLE_FOLDER: { state={...state,folders:state.folders.map((f)=>f.id===message.folderId?{...f,collapsed:!f.collapsed}:f)}; await saveState(); return state; }
+    // case Messages.MOVE_TAB_TO_FOLDER: { let f=state.folders.map((fl)=>({...fl,tabIds:fl.tabIds.filter((id)=>id!==message.tabId)})); f=f.map((fl)=>fl.id===message.folderId?{...fl,tabIds:[...fl.tabIds,message.tabId]}:fl).filter((fl)=>fl.tabIds.length>0); state={...state,folders:f}; await saveState(); return state; }
+    // case Messages.REMOVE_TAB_FROM_FOLDER: { state={...state,folders:state.folders.map((f)=>({...f,tabIds:f.tabIds.filter((id)=>id!==message.tabId)})).filter((f)=>f.tabIds.length>0)}; await saveState(); return state; }
+    // case Messages.REORDER_FOLDERS: { if(Array.isArray(message.folderOrders))state={...state,folders:state.folders.map((f)=>{if(f.spaceId!==message.spaceId)return f;const i=message.folderOrders.indexOf(f.id);return i!==-1?{...f,order:i}:f;})}; await saveState(); return state; }
 
     // ── Recently closed ───────────────────────────────────────────────────────
 

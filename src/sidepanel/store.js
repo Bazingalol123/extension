@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { Messages } from '@shared/messages.js'
-
+import { urlsMatch } from '@shared/utils.js'
 /**
  * Send a message to the background service worker and return the response.
  * @param {string} type
@@ -22,38 +22,43 @@ async function sendMessage(type, payload = {}) {
 function parseState(rawState) {
   if (!rawState) return {}
   return {
-    spaces:               rawState.spaces              ?? [],
-    activeSpaceId:        rawState.activeSpaceId       ?? '',
-    tabs:                 rawState.tabs                ?? [],
-    favorites:            rawState.favorites           ?? [],
-    favoriteFolders:      rawState.favoriteFolders     ?? [],
-    favoriteFolderState:  rawState.favoriteFolderState ?? {},
-    pinnedUrls:           rawState.pinnedUrls          ?? [],
-    recentlyClosed:       rawState.recentlyClosed      ?? [],
-    sidebarCollapsed:     rawState.sidebarCollapsed    ?? false,
-    tabAccessOrder:       rawState.tabAccessOrder      ?? [],
-    darkMode:             rawState.darkMode            ?? 'auto',
+    spaces:          rawState.spaces         ?? [],
+    activeSpaceId:   rawState.activeSpaceId  ?? '',
+    tabs:            rawState.tabs           ?? [],
+    favorites:       rawState.favorites      ?? [],
+    pinnedUrls:      rawState.pinnedUrls     ?? [],
+    favoriteFolders:     rawState.favoriteFolders     ?? [],
+    favoriteFolderState: rawState.favoriteFolderState ?? {},
+    bookmarksFailed:     rawState.bookmarksFailed     ?? false,
+    recentlyClosed:  rawState.recentlyClosed ?? [],
+    sidebarCollapsed: rawState.sidebarCollapsed ?? false,
+    tabAccessOrder:  rawState.tabAccessOrder  ?? [],
+    darkMode:        rawState.darkMode        ?? 'auto',
+    favoriteOwnerships: rawState.favoriteOwnerships ?? [],
   }
 }
 
 const useStore = create((set, get) => ({
-  // ── State ──────────────────────────────────────────────────────────────────
-  // ── State ──────────────────────────────────────────────────────────────────
-  spaces:              [],
-  activeSpaceId:       '',
-  tabs:                [],
-  favorites:           [],
-  favoriteFolders:     [],   // Phase 2b
-  favoriteFolderState: {},   // Phase 2b — folderId → collapsed
-  pinnedUrls:          [],
-  recentlyClosed:      [],
-  sidebarCollapsed:    false,
-  tabAccessOrder:      [],
-  activeTabId:         null,
-  darkMode:            'auto',
-  loading:             true,
-  sessions:            [],
-  myWindowId:          null,  // Phase 1: this sidepanel's owning window
+ // ── State ──────────────────────────────────────────────────────────────────
+  spaces:           [],
+  activeSpaceId:    '',
+  tabs:             [],
+  favorites:        [],
+  pinnedUrls:       [],
+  recentlyClosed:   [],
+  sidebarCollapsed: false,
+  tabAccessOrder:   [],
+  activeTabId:      null,
+  darkMode:         'auto',
+  loading:          true,
+  sessions:         [],
+  myWindowId:       null,
+  favoriteFolders:     [],
+  favoriteFolderState: {},
+  bookmarksFailed:     false,
+  favoriteOwnerships: [],
+
+  setMyWindowId: (id) => set({ myWindowId: id }),
 
   // Setter for myWindowId, called from main.jsx on mount
   setMyWindowId: (id) => set({ myWindowId: id }),
@@ -169,17 +174,7 @@ const useStore = create((set, get) => ({
   },
 
   // ── Favorites ─────────────────────────────────────────────────────────────
-  // ── Favorites (bookmarks-backed, Phase 2b) ────────────────────────────────
-  activateFavoriteUrl: (url) => {
-    const { tabs } = get()
-    const existing = tabs.find((t) => t.url === url)
-    if (existing) {
-      chrome.tabs.update(existing.id, { active: true })
-      set({ activeTabId: existing.id })
-    } else {
-      chrome.tabs.create({ url })
-    }
-  },
+
 
   addFavorite: async (tab, parentId) => {
     const state = await sendMessage(Messages.ADD_FAVORITE, {
@@ -230,7 +225,7 @@ const useStore = create((set, get) => ({
   },
 
   toggleFavoriteFolder: async (id) => {
-    // Optimistic UI: toggle local first, then confirm with SW
+    // Optimistic local toggle for snappy UI
     set((s) => ({
       favoriteFolderState: {
         ...s.favoriteFolderState,
@@ -238,6 +233,28 @@ const useStore = create((set, get) => ({
       },
     }))
     const state = await sendMessage(Messages.TOGGLE_FAVORITE_FOLDER, { id })
+    if (state) set(parseState(state))
+  },
+
+  
+
+  activateFavorite: async (favId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    await sendMessage(Messages.ACTIVATE_FAVORITE, { favId, windowId: myWindowId })
+  },
+
+  deactivateFavorite: async (favId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.DEACTIVATE_FAVORITE, { favId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
+
+  resetFavoriteDrift: async (favId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.RESET_FAVORITE_DRIFT, { favId, windowId: myWindowId })
     if (state) set(parseState(state))
   },
 
@@ -264,7 +281,7 @@ const useStore = create((set, get) => ({
     await sendMessage(Messages.REORDER_PINS, { ids })
   },
 
-
+ 
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
   setSidebarCollapsed: async (collapsed) => {
