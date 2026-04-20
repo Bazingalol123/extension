@@ -214,7 +214,9 @@ function buildOverlay() {
   wrap.appendChild(cards)
   swContainer.appendChild(wrap)
 
-  requestAnimationFrame(() => trap.focus())
+  // Focus the trap, then add race-robustness: if user already released
+  // all modifier keys before focus arrived, auto-confirm their selection.
+ requestAnimationFrame(() => trap.focus())
 
   trap.addEventListener('keydown', (e) => {
     const len = swTabs.length

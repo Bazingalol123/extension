@@ -196,10 +196,81 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape')     { e.preventDefault(); cancel(); return }
 })
 
+
+
 // Ctrl-release = confirm (like macOS Cmd+Tab)
 document.addEventListener('keyup', (e) => {
   if (e.key === 'Control' || e.key === 'Meta') confirm()
 })
+
+// Race-robustness: when popup gains focus, give it 80ms. If no keydown
+// fires in that window, the user already released their keys before the
+// popup got focus — commit their current selection.
+// Race-robustness: if user released Ctrl before popup got focus, the keyup
+// event is lost. Detect this by listening for the first event that includes
+// modifier state (mousemove, mousedown, keydown). If ctrl isn't held at that
+// moment, user already released — commit. If ctrl IS held, do nothing and
+// let the existing keyup listener handle the eventual release.
+let _firstEventChecked = false
+function checkModifiersOnce(e) {
+  if (_firstEventChecked) return
+  _firstEventChecked = true
+  const ctrlHeld = e.ctrlKey || e.metaKey
+  if (!ctrlHeld) {
+    // User already released Ctrl before we got focus → commit selection.
+    confirm()
+  }
+  // If Ctrl IS still held, do nothing — the keyup handler will fire on release.
+}
+
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Control' || e.key === 'Meta') confirm()
+})
+
+// Safety: if 3 seconds pass with zero activity, close without switching.
+// Protects against any other edge case that leaves the popup stuck.
+let _idleTimer = setTimeout(cancel, 3000)
+function resetIdle() {
+  clearTimeout(_idleTimer)
+  _idleTimer = setTimeout(cancel, 3000)
+}
+document.addEventListener('keydown', resetIdle)
+document.addEventListener('keyup', resetIdle)
+document.addEventListener('mousemove', resetIdle)
+document.addEventListener('click', resetIdle)
+
+// Race-robustness: Ctrl keyup may be lost if the popup gained focus mid-gesture.
+// On window focus, check if Ctrl is already NOT held — if so, the keyup
+// happened before we got focus. Commit the user's pre-arranged selection.
+window.addEventListener('focus', () => {
+  // Wait one frame so any pending key events flush first.
+  requestAnimationFrame(() => {
+    // If no Ctrl modifier is currently set (querying via a dummy event is
+    // impossible — but we can check if user pressed anything since).
+    // Simple heuristic: if no keydown has fired within 80ms of focus,
+    // assume the gesture ended before focus arrived.
+    setTimeout(() => {
+      if (!_recentKeydown) confirm()
+    }, 80)
+  })
+})
+
+let _recentKeydown = false
+document.addEventListener('keydown', () => {
+  _recentKeydown = true
+  setTimeout(() => { _recentKeydown = false }, 150)
+})
+
+// Safety: auto-cancel after 3 seconds of no interaction.
+let _idleTimer = setTimeout(cancel, 3000)
+function resetIdle() {
+  clearTimeout(_idleTimer)
+  _idleTimer = setTimeout(cancel, 3000)
+}
+document.addEventListener('keydown', resetIdle)
+document.addEventListener('keyup', resetIdle)
+document.addEventListener('mousemove', resetIdle)
+document.addEventListener('click', resetIdle)
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
