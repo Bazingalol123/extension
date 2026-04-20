@@ -6,12 +6,13 @@ import useStore from '../store'
 import { getFaviconSrc, getFaviconFallback } from '@shared/utils.js'
 
 /**
- * Individual pinned tile — ownership-based active state.
- * Inactive: pin has no owned tab in this window → click opens + binds
- * Active:   pin owns a tab → click activates, [-] closes
- * Drifted:  owned tab's URL differs from pin's URL → orange dot, click disabled, [↻] reset
+ * Individual pinned tile — ownership-based active state with 3-state focus.
+ * Inactive:         pin has no owned tab in this window
+ * Active:           pin owns a tab (not currently focused)
+ * Active + focused: pin owns a tab AND that tab is the currently-active tab
+ * Drifted:          owned tab's URL differs from pin's URL
  */
-export function PinnedTile({ pin, accentColor, dragging }) {
+export function PinnedTile({ pin, accentColor, activeTabId, dragging }) {
   const {
     unpinUrl, setPinUrlToCurrent,
     activatePin, deactivatePin, resetPinDrift,
@@ -25,6 +26,7 @@ export function PinnedTile({ pin, accentColor, dragging }) {
   const ownership = (pinOwnerships || []).find(o => o.pinId === pin.id && o.windowId === myWindowId)
   const isActive  = !!ownership
   const isDrifted = !!ownership?.drifted
+  const isFocused = isActive && ownership?.tabId === activeTabId
 
   const favicon  = getFaviconSrc(pin.favIconUrl)
   const fallback = getFaviconFallback(pin.title, pin.url)
@@ -44,7 +46,12 @@ export function PinnedTile({ pin, accentColor, dragging }) {
   return (
     <>
       <div
-        className={`pinned-url-tile${isActive ? ' is-active' : ' is-closed'}${isDrifted ? ' is-drifted' : ''}`}
+        className={
+            `pinned-url-tile` +
+            (isActive ? ' is-open' : ' is-closed') +
+            (isFocused ? ' is-focused' : '') +
+            (isDrifted ? ' is-drifted' : '')
+        }
         style={{ '--space-color': accentColor, opacity: dragging ? 0.6 : undefined }}
         onClick={handleClick}
         onMouseEnter={() => setHover(true)}
@@ -124,7 +131,7 @@ function SortablePinnedTile({ id, ...props }) {
   )
 }
 
-export default function PinnedUrlsBar({ pins, accentColor }) {
+export default function PinnedUrlsBar({ pins, accentColor, tabs, activeTabId }) {
   const sorted = [...pins].sort((a, b) => a.order - b.order)
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: 'pinned-droppable' })
 
@@ -142,6 +149,7 @@ export default function PinnedUrlsBar({ pins, accentColor }) {
             id={pin.id}
             pin={pin}
             accentColor={accentColor}
+            activeTabId={activeTabId}
           />
         ))}
       </SortableContext>

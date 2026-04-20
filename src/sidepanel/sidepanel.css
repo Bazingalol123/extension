@@ -1140,3 +1140,25 @@ html, body, #root {
 .pin-action-btn:hover {
   filter: brightness(0.95);
 }
+
+
+/* Focused state — the owned tab is the currently-active tab in this window */
+.pinned-url-tile.is-focused {
+  outline: 3px solid var(--space-color, var(--accent));
+  outline-offset: -3px;
+  box-shadow: 0 0 0 1px var(--space-color, var(--accent)) inset,
+              0 0 8px rgba(124, 106, 247, 0.35);
+}
+
+.favorite-row.is-focused {
+  border-left: 3px solid var(--accent-color, #7C6AF7);
+  padding-left: calc(var(--row-padding, 8px) - 3px);
+  background: color-mix(in srgb, var(--accent-color, #7C6AF7) 8%, transparent);
+  font-weight: 600;
+}
+
+.pinned-url-tile.is-focused.is-drifted {
+  outline-color: #f97316;
+  box-shadow: 0 0 0 1px #f97316 inset,
+              0 0 8px rgba(249, 115, 22, 0.35);
+}
