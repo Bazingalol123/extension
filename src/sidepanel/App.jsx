@@ -20,9 +20,9 @@ export default function App() {
     spaces, activeSpaceId, tabs, favorites, pinnedUrls, favoriteFolders,
     activeTabId, sidebarCollapsed, tabAccessOrder, loading, darkMode,
     myWindowId,
-    load, setSidebarCollapsed, switchSpace, activateFavoriteUrl,
+    load, setSidebarCollapsed, switchSpace, activateFavorite,
     reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
-    moveFavorite, setDarkMode,
+    moveFavorite, setDarkMode, favoriteOwnerships, 
   } = useStore()
 
   const [showNewTabModal, setShowNewTabModal] = useState(false)
@@ -123,9 +123,15 @@ export default function App() {
   // Phase 1: narrow to this sidepanel's window first.
   // While myWindowId is resolving (briefly on mount), render nothing rather than
   // leak other-window tabs into this view.
-  const windowTabs = useMemo(
-    () => (myWindowId == null ? [] : tabs.filter((t) => t.windowId === myWindowId)),
-    [tabs, myWindowId]
+ const windowTabs = useMemo(
+    () => {
+      if (myWindowId == null) return []
+      const ownedTabIds = new Set(
+        (favoriteOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId)
+      )
+      return tabs.filter(t => t.windowId === myWindowId && !ownedTabIds.has(t.id))
+    },
+    [tabs, myWindowId, favoriteOwnerships]
   )
 
   const spaceTabs = useMemo(
@@ -177,9 +183,15 @@ export default function App() {
       const isFav      = sortedFavorites.some((f) => String(f.id) === String(active.id))
 
       if (isLooseTab) {
-        if (over.id === 'favorites-droppable' || sortedFavorites.some((f) => String(f.id) === String(over.id))) {
+       if (over.id === 'favorites-droppable' ||sortedFavorites.some((f) => String(f.id) === String(over.id)) ||String(over.id).startsWith('fav-folder-')) {
           const tab = sortedLooseTabs.find((t) => String(t.id) === String(active.id))
-          if (tab) addFavorite(tab); return
+            if (tab) {
+                const parentId = String(over.id).startsWith('fav-folder-')
+                ? String(over.id).replace('fav-folder-', '')
+                : undefined
+                addFavorite(tab, parentId)
+            }
+            return
         }
         if (over.id === 'pinned-droppable' || sortedPins.some((p) => String(p.id) === String(over.id))) {
           const tab = sortedLooseTabs.find((t) => String(t.id) === String(active.id))
@@ -216,7 +228,7 @@ export default function App() {
       }
     },
     [sortedLooseTabs, sortedFavorites, sortedPins,
-     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl]
+     reorderTabs, reorderFavorites, reorderPins, addFavorite, pinUrl, moveFavorite]
   )
 
   if (loading) return <div className="loading-state">Loading…</div>
@@ -243,7 +255,7 @@ export default function App() {
         </div>
         {sortedFavs.length > 0 && (
           <div className="rail-favs">
-            {sortedFavs.map((fav) => <RailFav key={fav.id} fav={fav} onOpen={activateFavoriteUrl} />)}
+            {sortedFavs.map((fav) => <RailFav key={fav.id} fav={fav} onOpen={activateFavorite} />)}
           </div>
         )}
       </div>

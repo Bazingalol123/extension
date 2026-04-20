@@ -131,10 +131,16 @@ async function loadState() {
       return rest;
     });
     state = {
-      favorites:[], pinnedUrls:[], recentlyClosed:[],
-      sidebarCollapsed:false, darkMode:'auto',
-      ...saved, spaces: migratedSpaces, pinnedUrls: globalPins
-       || [], recentlyClosed: saved.recentlyClosed || [],
+        favorites:[], pinnedUrls:[], recentlyClosed:[],
+        sidebarCollapsed:false, darkMode:'auto',
+        // Phase 3: ensure arrays/objects exist on upgrade from pre-Phase-3 state
+        favoriteOwnerships: [],
+        lastShutdownTime: 0,
+        ...saved,
+        spaces: migratedSpaces, pinnedUrls: globalPins,
+        recentlyClosed: saved.recentlyClosed || [],
+        favoriteOwnerships: Array.isArray(saved.favoriteOwnerships) ? saved.favoriteOwnerships : [],
+        lastShutdownTime: typeof saved.lastShutdownTime === 'number' ? saved.lastShutdownTime : 0,
     };
     tabAccessOrder = saved.tabAccessOrder || [];
   } else {
@@ -416,7 +422,17 @@ chrome.tabs.onCreated.addListener(async (tab) => {
         await dbg('newtab:error', { msg: String(e) });
         }
     }
-  
+    // Phase 3: auto-reown on Shift+Alt+T reopen
+    if (tab.id && tab.url && tab.windowId != null) {
+        const matchingFav = state.favorites.find(f => f.url === tab.url);
+        if (matchingFav) {
+        const existing = findOwnership(matchingFav.id, tab.windowId);
+        if (!existing) {
+            bindOwnership(matchingFav.id, tab.windowId, tab.id);
+            // state save happens below via existing code path
+        }
+        }
+    }
   const n = normalizeTab(tab);
   if (n) { state = { ...state, tabs: [...state.tabs.filter((t) => t.id !== tab.id), n] }; await saveState(); }
 });
@@ -431,6 +447,26 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.mutedInfo !== undefined) ch.muted = changeInfo.mutedInfo.muted;
     if (changeInfo.status === 'loading') ch.suspended = false;
     if (Object.keys(ch).length) updateTab(tabId, ch);
+    // Phase 3: drift detection for owned tabs
+    if (tab.url) {
+      const ownership = findOwnershipByTab(tabId);
+      if (ownership) {
+        const fav = state.favorites.find(f => f.id === ownership.favId);
+        if (fav) {
+          const isDriftedNow = !urlsMatch(fav.url, tab.url);
+          if (isDriftedNow !== ownership.drifted) {
+            state = {
+              ...state,
+              favoriteOwnerships: state.favoriteOwnerships.map(o =>
+                o.favId === ownership.favId && o.windowId === ownership.windowId
+                  ? { ...o, drifted: isDriftedNow }
+                  : o
+              ),
+            };
+          }
+        }
+      }
+    }
     if (changeInfo.favIconUrl || changeInfo.title) {
       state = { ...state, pinnedUrls: state.pinnedUrls.map((p) => urlsMatch(p.url, tab.url||'') ?
     { ...p, favIconUrl: changeInfo.favIconUrl||p.favIconUrl, title: changeInfo.title||p.title } : p) };
@@ -676,7 +712,6 @@ async function handleMessage(message) {
     case Messages.ADD_FAVORITE: {
       const ready = await ensureBookmarksInitialized();
       if (!ready) return state;
-      if (state.favorites.find((f) => urlsMatch(f.url, message.url))) return state;
       const created = await createBookmark(message.url, message.title || '', message.parentId);
       if (created && message.favIconUrl) {
         cacheFavicon(state.faviconCache, state.faviconCacheKeys, message.url, message.favIconUrl);
@@ -744,6 +779,59 @@ async function handleMessage(message) {
       if (!ready) return state;
       await updateBookmark(message.id, { title: message.title });
       await rebuildFavoritesFromBookmarks();
+      return state;
+    }
+
+
+
+    case Messages.ACTIVATE_FAVORITE: {
+      const { favId, windowId } = message;
+      const existing = findOwnership(favId, windowId);
+      if (existing) {
+        // Already owns a tab in this window → just activate it
+        await chrome.tabs.update(existing.tabId, { active: true }).catch(() => {});
+        await chrome.windows.update(windowId, { focused: true }).catch(() => {});
+        // If drifted, reset drift — user's click is an implicit accept? No — click is disabled on drifted.
+        // Don't reach here if drifted (UI blocks it). But defensive: only clear drift on explicit reset.
+        return state;
+      }
+      // Create new tab in the target window
+      const fav = state.favorites.find(f => f.id === favId);
+      if (!fav) return state;
+      const newTab = await chrome.tabs.create({ url: fav.url, windowId, active: true }).catch(() => null);
+      if (newTab?.id) {
+        bindOwnership(favId, windowId, newTab.id);
+        await saveState();
+      }
+      return state;
+    }
+
+    case Messages.DEACTIVATE_FAVORITE: {
+      const { favId, windowId } = message;
+      const existing = findOwnership(favId, windowId);
+      if (!existing) return state;
+      await chrome.tabs.remove(existing.tabId).catch(() => {});
+      // releaseOwnership will also be triggered by onRemoved, but do it here so
+      // state updates immediately without waiting for the async event
+      releaseOwnership(favId, windowId);
+      await saveState();
+      return state;
+    }
+
+    case Messages.RESET_FAVORITE_DRIFT: {
+      const { favId, windowId } = message;
+      const existing = findOwnership(favId, windowId);
+      if (!existing) return state;
+      const fav = state.favorites.find(f => f.id === favId);
+      if (!fav) return state;
+      await chrome.tabs.update(existing.tabId, { url: fav.url }).catch(() => {});
+      state = {
+        ...state,
+        favoriteOwnerships: state.favoriteOwnerships.map(o =>
+          o.favId === favId && o.windowId === windowId ? { ...o, drifted: false } : o
+        ),
+      };
+      await saveState();
       return state;
     }
 

@@ -172,20 +172,7 @@ const useStore = create((set, get) => ({
   },
 
   // ── Favorites ─────────────────────────────────────────────────────────────
-  activateFavoriteUrl: (url) => {
-    const { tabs, myWindowId } = get()
-    // Prefer a match in THIS window; fall back to creating a new one.
-    const inThisWindow = myWindowId != null
-      ? tabs.filter((t) => t.windowId === myWindowId)
-      : tabs
-    const existing = inThisWindow.find((t) => urlsMatch(t.url, url))
-    if (existing) {
-      chrome.tabs.update(existing.id, { active: true })
-      set({ activeTabId: existing.id })
-    } else {
-      chrome.tabs.create({ url })
-    }
-  },
+
 
   addFavorite: async (tab, parentId) => {
     const state = await sendMessage(Messages.ADD_FAVORITE, {
@@ -247,15 +234,26 @@ const useStore = create((set, get) => ({
     if (state) set(parseState(state))
   },
 
-  closeFavoriteTab: async (url) => {
-    const { tabs, myWindowId } = get()
+  
+
+  activateFavorite: async (favId) => {
+    const { myWindowId } = get()
     if (myWindowId == null) return
-    const tabInThisWindow = tabs.find((t) =>
-      t.windowId === myWindowId && urlsMatch(t.url, url)
-    )
-    if (tabInThisWindow) {
-      await chrome.tabs.remove(tabInThisWindow.id)
-    }
+    await sendMessage(Messages.ACTIVATE_FAVORITE, { favId, windowId: myWindowId })
+  },
+
+  deactivateFavorite: async (favId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.DEACTIVATE_FAVORITE, { favId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
+
+  resetFavoriteDrift: async (favId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.RESET_FAVORITE_DRIFT, { favId, windowId: myWindowId })
+    if (state) set(parseState(state))
   },
 
   // ── Pinned URLs ───────────────────────────────────────────────────────────

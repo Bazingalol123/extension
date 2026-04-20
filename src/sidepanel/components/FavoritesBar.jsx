@@ -9,8 +9,9 @@ import { getFaviconSrc, getFaviconFallback, urlsMatch } from '@shared/utils.js'
 
 export function FavoriteRow({ fav, accentColor, isDragging, inFolder }) {
   const {
-    removeFavorite, activateFavoriteUrl, renameFavorite, closeFavoriteTab,
-    tabs, myWindowId,
+    removeFavorite, renameFavorite,
+    activateFavorite, deactivateFavorite, resetFavoriteDrift,
+    favoriteOwnerships, myWindowId,
   } = useStore()
 
   const [imgError, setImgError] = useState(false)
@@ -20,9 +21,11 @@ export function FavoriteRow({ fav, accentColor, isDragging, inFolder }) {
   const ctxRef = useRef(null)
   const inputRef = useRef(null)
 
-  const hasTabInThisWindow = tabs.some((t) =>
-    t.windowId === myWindowId && urlsMatch(t.url, fav.url)
+  const ownership = (favoriteOwnerships || []).find(
+    o => o.favId === fav.id && o.windowId === myWindowId
   )
+  const isActive  = !!ownership
+  const isDrifted = !!ownership?.drifted
 
   const favicon  = getFaviconSrc(fav.favIconUrl)
   const fallback = getFaviconFallback(fav.title, fav.url)
@@ -54,17 +57,16 @@ export function FavoriteRow({ fav, accentColor, isDragging, inFolder }) {
 
   const handleRowClick = (e) => {
     if (editing) return
-    if (e.target.closest('.fav-action-btn')) return // button clicks handled separately
-    activateFavoriteUrl(fav.url)
+    if (e.target.closest('.fav-action-btn')) return
+    if (isDrifted) return  // drifted rows are click-disabled; user must reset or [-]
+    activateFavorite(fav.id)
   }
 
   const handleActionClick = (e) => {
     e.stopPropagation()
-    if (hasTabInThisWindow) {
-      // [-] close the tab in this window (keep favorite)
-      closeFavoriteTab(fav.url)
+    if (isActive) {
+      deactivateFavorite(fav.id)
     } else {
-      // [x] delete the favorite
       removeFavorite(fav.id)
     }
   }
@@ -72,7 +74,7 @@ export function FavoriteRow({ fav, accentColor, isDragging, inFolder }) {
   return (
     <>
       <div
-        className={`favorite-row${hasTabInThisWindow ? ' is-active' : ''}${inFolder ? ' in-folder' : ''}${isDragging ? ' is-dragging' : ''}`}
+        className={`favorite-row${isActive ? ' is-active' : ''}${isDrifted ? ' is-drifted' : ''}${inFolder ? ' in-folder' : ''}${isDragging ? ' is-dragging' : ''}`}
         style={{ '--accent-color': accentColor, opacity: isDragging ? 0.5 : 1 }}
         onClick={handleRowClick}
         onDoubleClick={(e) => {
@@ -111,22 +113,27 @@ export function FavoriteRow({ fav, accentColor, isDragging, inFolder }) {
           <span className="favorite-title">{fav.title || fav.url}</span>
         )}
 
+        {isActive && isDrifted && (
+          <button
+            className="fav-action-btn action-reset"
+            onClick={(e) => { e.stopPropagation(); resetFavoriteDrift(fav.id) }}
+            title="Reset to original URL"
+          >
+            ↻
+          </button>
+        )}
         <button
-          className={`fav-action-btn ${hasTabInThisWindow ? 'action-minus' : 'action-x'}`}
+          className={`fav-action-btn ${isActive ? 'action-minus' : 'action-x'}`}
           onClick={handleActionClick}
-          title={
-            hasTabInThisWindow
-              ? 'Close tab (keep favorite)'
-              : 'Delete favorite'
-          }
+          title={isActive ? 'Close tab (keep favorite)' : 'Delete favorite'}
         >
-          {hasTabInThisWindow ? '−' : '×'}
+          {isActive ? '−' : '×'}
         </button>
       </div>
 
       {ctxMenu && (
         <div ref={ctxRef} className="fav-ctx-menu" style={{ top: ctxMenu.y, left: ctxMenu.x }}>
-          <div className="ctx-item" onClick={() => { activateFavoriteUrl(fav.url); setCtxMenu(null) }}>
+          <div className="ctx-item" onClick={() => { activateFavorite(fav.id); setCtxMenu(null) }}>
             Open
           </div>
           <div className="ctx-item" onClick={() => { setEditing(true); setCtxMenu(null) }}>
