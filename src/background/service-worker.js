@@ -514,6 +514,26 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         }
       }
     }
+
+    if (tab.url) {
+      const pinOwnership = findPinOwnershipByTab(tabId);
+      if (pinOwnership) {
+        const pin = state.pinnedUrls.find(p => p.id === pinOwnership.pinId);
+        if (pin) {
+          const isDriftedNow = !urlsMatch(pin.url, tab.url);
+          if (isDriftedNow !== pinOwnership.drifted) {
+            state = {
+              ...state,
+              pinOwnerships: state.pinOwnerships.map(o =>
+                o.pinId === pinOwnership.pinId && o.windowId === pinOwnership.windowId
+                  ? { ...o, drifted: isDriftedNow }
+                  : o
+              ),
+            };
+          }
+        }
+      }
+    }
     if (changeInfo.favIconUrl || changeInfo.title) {
       state = { ...state, pinnedUrls: state.pinnedUrls.map((p) => urlsMatch(p.url, tab.url||'') ?
     { ...p, favIconUrl: changeInfo.favIconUrl||p.favIconUrl, title: changeInfo.title||p.title } : p) };
