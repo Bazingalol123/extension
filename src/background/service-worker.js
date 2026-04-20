@@ -760,7 +760,7 @@ async function handleMessage(message) {
     case Messages.CREATE_FAVORITE_FOLDER: {
       const ready = await ensureBookmarksInitialized();
       if (!ready) return state;
-      await createFolder(message.title || 'New folder');
+      await createFolder(message.title || 'New folder', message.parentId);
       await rebuildFavoritesFromBookmarks();
       return state;
     }
@@ -785,7 +785,27 @@ async function handleMessage(message) {
       return state;
     }
 
-
+    case Messages.MOVE_FAVORITE_FOLDER: {
+      const ready = await ensureBookmarksInitialized();
+      if (!ready) return state;
+      // Prevent moving a folder into its own descendant (creates a cycle).
+      // We can check this by walking the folders tree upward from the destination.
+      const { folderId, parentId, index } = message;
+      if (folderId === parentId) return state;
+      let cursor = parentId;
+      while (cursor && cursor !== state.favoritesRootId) {
+        if (cursor === folderId) {
+          // dest is descendant of src → abort
+          return state;
+        }
+        const f = state.favoriteFolders.find(x => x.id === cursor);
+        if (!f) break;
+        cursor = f.parentId;
+      }
+      await moveBookmark(folderId, { parentId, index });
+      await rebuildFavoritesFromBookmarks();
+      return state;
+    }
 
     case Messages.ACTIVATE_FAVORITE: {
       const { favId, windowId } = message;

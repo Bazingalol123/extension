@@ -65,6 +65,11 @@ export async function ensureBookmarksReady(existingRootId) {
  * Favorites = all url-bearing bookmarks (flattened from any depth).
  * Folders = depth-0 folders directly under root (v1 shows one level).
  */
+/**
+ * Read the favorites subtree.
+ * Favorites = all url-bearing bookmarks (flattened, parentId preserved).
+ * Folders = ALL folders at any depth (parentId preserved for hierarchy).
+ */
 export async function readFavoritesTree(faviconCache = {}) {
   if (!_rootId) return { favorites: [], folders: [] }
   try {
@@ -73,7 +78,7 @@ export async function readFavoritesTree(faviconCache = {}) {
     if (!tree?.children) return { favorites: [], folders: [] }
     const favorites = []
     const folders   = []
-    function walk(node, depth) {
+    function walk(node) {
       if (!node.children) return
       node.children.forEach((child, index) => {
         if (child.url) {
@@ -87,19 +92,17 @@ export async function readFavoritesTree(faviconCache = {}) {
             favIconUrl: faviconCache[child.url] || '',
           })
         } else {
-          if (depth === 0) {
-            folders.push({
-              id:       child.id,
-              title:    child.title || '',
-              parentId: child.parentId,
-              order:    index,
-            })
-          }
-          walk(child, depth + 1)
+          folders.push({
+            id:       child.id,
+            title:    child.title || '',
+            parentId: child.parentId,
+            order:    index,
+          })
+          walk(child)
         }
       })
     }
-    walk(tree, 0)
+    walk(tree)
     return { favorites, folders }
   } catch (_) {
     return { favorites: [], folders: [] }

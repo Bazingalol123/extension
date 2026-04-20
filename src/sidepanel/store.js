@@ -35,6 +35,7 @@ function parseState(rawState) {
     tabAccessOrder:  rawState.tabAccessOrder  ?? [],
     darkMode:        rawState.darkMode        ?? 'auto',
     favoriteOwnerships: rawState.favoriteOwnerships ?? [],
+    favoritesRootId:    rawState.favoritesRootId    ?? null,
   }
 }
 
@@ -57,6 +58,7 @@ const useStore = create((set, get) => ({
   favoriteFolderState: {},
   bookmarksFailed:     false,
   favoriteOwnerships: [],
+  favoritesRootId:    null,
 
   setMyWindowId: (id) => set({ myWindowId: id }),
 
@@ -209,8 +211,16 @@ const useStore = create((set, get) => ({
     if (state) set(parseState(state))
   },
 
-  createFavoriteFolder: async (title) => {
-    const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, { title: title || 'New folder' })
+  moveFavoriteFolder: async (folderId, parentId, index) => {
+    const state = await sendMessage(Messages.MOVE_FAVORITE_FOLDER, { folderId, parentId, index })
+    if (state) set(parseState(state))
+  },
+
+  createFavoriteFolder: async (title, parentId) => {
+    const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, {
+      title: title || 'New folder',
+      ...(parentId ? { parentId } : {}),
+    })
     if (state) set(parseState(state))
   },
 
