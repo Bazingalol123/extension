@@ -22,7 +22,7 @@ export default function App() {
     myWindowId, moveFavoriteFolder,
     load, setSidebarCollapsed, switchSpace, activateFavorite,
     reorderTabs, addFavorite, pinUrl, reorderFavorites, reorderPins,
-    moveFavorite, setDarkMode, favoriteOwnerships, 
+    moveFavorite, setDarkMode, favoriteOwnerships, pinOwnerships,
   } = useStore()
 
   const [showNewTabModal, setShowNewTabModal] = useState(false)
@@ -126,12 +126,11 @@ export default function App() {
  const windowTabs = useMemo(
     () => {
       if (myWindowId == null) return []
-      const ownedTabIds = new Set(
-        (favoriteOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId)
-      )
-      return tabs.filter(t => t.windowId === myWindowId && !ownedTabIds.has(t.id))
+      const favOwnedIds = new Set((favoriteOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId))
+      const pinOwnedIds = new Set((pinOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId))
+      return tabs.filter(t => t.windowId === myWindowId && !favOwnedIds.has(t.id) && !pinOwnedIds.has(t.id))
     },
-    [tabs, myWindowId, favoriteOwnerships]
+    [tabs, myWindowId, favoriteOwnerships, pinOwnerships]
   )
 
   const spaceTabs = useMemo(
@@ -338,8 +337,9 @@ export default function App() {
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={windowTabs} />}
-        <FavoritesBar favorites={sortedFavorites} folders={favoriteFolders} accentColor={accentColor} favoritesRootId={favoritesRootId} />
+        {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={windowTabs} activeTabId={activeTabId} />}
+        <FavoritesBar favorites={sortedFavorites} folders={favoriteFolders} accentColor={accentColor} favoritesRootId={favoritesRootId} activeTabId={activeTabId}/>
+
 
         <div className="tabs-area" ref={tabsAreaRef}>
           <div className="section">
@@ -359,7 +359,7 @@ export default function App() {
 
         <DragOverlay>
           {activeDragTab && <div style={{ opacity: 0.85, transform: 'scale(1.02)', cursor: 'grabbing' }}><TabItem tab={activeDragTab} isActive={activeDragTab.id === activeTabId} accentColor={accentColor} spaces={spaces} activeSpaceId={activeSpaceId} /></div>}
-          {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavoriteRow fav={activeDragFav} accentColor={accentColor} /></div>}
+          {activeDragFav && <div style={{ opacity: 0.8, transform: 'scale(1.12)', cursor: 'grabbing' }}><FavoriteRow fav={activeDragFav} accentColor={accentColor} activeTabId={activeTabId} /></div>}
           {activeDragPin && <div style={{ opacity: 0.85, transform: 'scale(1.1)', cursor: 'grabbing' }}><PinnedTile pin={activeDragPin} accentColor={accentColor} isOpen={windowTabs.some((t) => urlsMatch(t.url, activeDragPin.url))} dragging /></div>}
           {activeDragFolder && <div style={{ opacity: 0.85, padding: '8px 12px', background: 'var(--bg-secondary, white)', border: '1px solid var(--accent-color, #7C6AF7)', borderRadius: 6 }}>📁 {activeDragFolder.title}</div>}
         </DragOverlay>

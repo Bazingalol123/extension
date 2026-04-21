@@ -50,6 +50,9 @@ export const Messages = {
   UNPIN_URL: 'UNPIN_URL',
   REORDER_PINS: 'REORDER_PINS',
   SET_PIN_URL_TO_CURRENT: 'SET_PIN_URL_TO_CURRENT',  // Drop 4
+  ACTIVATE_PIN: 'ACTIVATE_PIN',
+  DEACTIVATE_PIN: 'DEACTIVATE_PIN',
+  RESET_PIN_DRIFT: 'RESET_PIN_DRIFT',
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
   TOGGLE_SIDEBAR: 'TOGGLE_SIDEBAR',

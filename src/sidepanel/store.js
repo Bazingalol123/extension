@@ -36,6 +36,7 @@ function parseState(rawState) {
     darkMode:        rawState.darkMode        ?? 'auto',
     favoriteOwnerships: rawState.favoriteOwnerships ?? [],
     favoritesRootId:    rawState.favoritesRootId    ?? null,
+    pinOwnerships: Array.isArray(rawState.pinOwnerships) ? rawState.pinOwnerships : [],
   }
 }
 
@@ -59,6 +60,7 @@ const useStore = create((set, get) => ({
   bookmarksFailed:     false,
   favoriteOwnerships: [],
   favoritesRootId:    null,
+  pinOwnerships: [],
 
   setMyWindowId: (id) => set({ myWindowId: id }),
 
@@ -141,6 +143,27 @@ const useStore = create((set, get) => ({
 
   duplicateTab: async (tabId) => {
     await sendMessage(Messages.DUPLICATE_TAB, { tabId })
+  },
+
+
+  activatePin: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    await sendMessage(Messages.ACTIVATE_PIN, { pinId, windowId: myWindowId })
+  },
+
+  deactivatePin: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.DEACTIVATE_PIN, { pinId, windowId: myWindowId })
+    if (state) set(parseState(state))
+  },
+
+  resetPinDrift: async (pinId) => {
+    const { myWindowId } = get()
+    if (myWindowId == null) return
+    const state = await sendMessage(Messages.RESET_PIN_DRIFT, { pinId, windowId: myWindowId })
+    if (state) set(parseState(state))
   },
 
   muteTab: async (tabId) => {
