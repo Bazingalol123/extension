@@ -271,22 +271,25 @@ async function reconcileOwnershipsOnStartup() {
     const idleMinutes = settings.idleMinutes ?? 30;
     const now = Date.now();
     if (idleMinutes > 0 && state.lastShutdownTime > 0 &&
-        (state.favoriteOwnerships.length > 0 || state.pinOwnerships.length > 0)) {
+    (state.favoriteOwnerships.length > 0 || state.pinOwnerships.length > 0)) {
       const elapsedMin = (now - state.lastShutdownTime) / 60000;
-      if (elapsedMin > idleMinutes) {
-        const allOwned = [
-          ...state.favoriteOwnerships,
-          ...state.pinOwnerships,
-        ];
-        for (const o of allOwned) {
-          await chrome.tabs.remove(o.tabId).catch(() => {});
-        }
-        state = { ...state, favoriteOwnerships: [], pinOwnerships: [] };
+      // Verify the "shutdown" was real: if any owned tabs are still alive now,
+      // Brave didn't actually shut down — stored time is a false positive.
+      const liveTabs = await chrome.tabs.query({}).catch(() => []);
+      const liveIds = new Set(liveTabs.map(t => t.id));
+      const anyOwnedAlive = [...state.favoriteOwnerships, ...state.pinOwnerships].some(o => liveIds.has(o.tabId));
+    
+      if (!anyOwnedAlive && elapsedMin > idleMinutes) {
+        state = { ...state, favoriteOwnerships: [], pinOwnerships: [], lastShutdownTime: 0 };
         await saveState();
         return;
       }
+      if (anyOwnedAlive) {
+        // False positive in the past — reset so we don't retry
+        state = { ...state, lastShutdownTime: 0 };
+        await saveState();
+      }
     }
-
     // 2. Prune bindings for tabs that no longer exist (e.g. Brave was force-killed)
     if (state.favoriteOwnerships.length > 0 || state.pinOwnerships.length > 0) {
       const liveTabs = await chrome.tabs.query({});
@@ -656,11 +659,18 @@ chrome.commands.onCommand.addListener(async (command) => {
 chrome.action.onClicked.addListener(async (tab) => { if (tab.id) await chrome.sidePanel.open({ tabId: tab.id }); });
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
-// Phase 3: track Brave shutdown for idle expiration calculation
-chrome.windows.onRemoved.addListener(async () => {
-  const windows = await chrome.windows.getAll().catch(() => []);
-  if (windows.length === 0) {
-    // Last window closed → treat as Brave shutdown
+chrome.windows.onRemoved.addListener(async (closedWindowId) => {
+  // Only count closures of normal browser windows (not popups, devtools, sidepanels)
+  // and defer the check to avoid transient "0 windows" states.
+  await new Promise(resolve => setTimeout(resolve, 500));
+  try {
+    const windows = await chrome.windows.getAll({ populate: false, windowTypes: ['normal'] });
+    if (windows.length === 0) {
+      state = { ...state, lastShutdownTime: Date.now() };
+      await saveState();
+    }
+  } catch (_) {
+    // If getAll fails (SW going down), that's already shutdown territory
     state = { ...state, lastShutdownTime: Date.now() };
     await saveState();
   }
