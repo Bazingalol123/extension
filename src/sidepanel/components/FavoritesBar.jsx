@@ -198,8 +198,9 @@ function SortableFolderRow({ folder, ...props }) {
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
       {...attributes}
+      {...listeners}
     >
-      <FolderRow folder={folder} dragHandleListeners={listeners} {...props} />
+      <FolderRow folder={folder} {...props} />
     </div>
   )
 }
@@ -208,7 +209,7 @@ function SortableFolderRow({ folder, ...props }) {
 
 // ─── FolderRow ───────────────────────────────────────────────────────────────
 
-function FolderRow({ folder, accentColor, children, childCount, depth = 0, dragHandleListeners }) {
+function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
   const { toggleFavoriteFolder, renameFavoriteFolder, deleteFavoriteFolder, createFavoriteFolder, favoriteFolderState } = useStore()
   const collapsed = !!favoriteFolderState?.[folder.id]
 
@@ -252,12 +253,9 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0, dragH
           setCtxMenu({ x: Math.min(e.clientX, window.innerWidth - 180), y: e.clientY })
         }}
       >
-        <span
+        {/* <span
           className="folder-drag-handle"
-          {...(dragHandleListeners || {})}
-          onClick={(e) => e.stopPropagation()}
-          title="Drag to move folder"
-        >⋮⋮</span>
+        >⋮⋮</span> */}
         <span className={`folder-chevron${collapsed ? ' collapsed' : ''}`}>▾</span>
         <span className="folder-icon">📁</span>
         {editing ? (
@@ -312,9 +310,13 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0, dragH
  *   { kind: 'fav', fav }
  * Children are sorted by order. Favs inside a folder live on that node.
  */
+/**
+ * Build a tree where at each level, folders and favorites are interleaved
+ * by their `order` field. A folder node contains its own mixed children.
+ */
 function buildTree(favorites, folders, rootId) {
-  const childrenByParent = new Map()   // parentId -> folder[]
-  const favsByParent     = new Map()   // parentId -> favorite[]
+  const childrenByParent = new Map()
+  const favsByParent     = new Map()
 
   for (const folder of folders) {
     if (!childrenByParent.has(folder.parentId)) childrenByParent.set(folder.parentId, [])
@@ -325,24 +327,28 @@ function buildTree(favorites, folders, rootId) {
     favsByParent.get(fav.parentId).push(fav)
   }
 
-  function buildFolderNode(folder) {
-    const subFolders = (childrenByParent.get(folder.id) || []).sort((a, b) => a.order - b.order)
-    const subFavs    = (favsByParent.get(folder.id) || []).sort((a, b) => a.order - b.order)
-    return {
-      kind: 'folder',
-      folder,
-      children: subFolders.map(buildFolderNode),
-      favs: subFavs,
-    }
+  function buildMixedChildren(parentId) {
+    const folderChildren = childrenByParent.get(parentId) || []
+    const favChildren    = favsByParent.get(parentId) || []
+    const mixed = [
+      ...folderChildren.map(f => ({ kind: 'folder', orderKey: f.order, folder: f })),
+      ...favChildren.map(f => ({ kind: 'fav', orderKey: f.order, fav: f })),
+    ].sort((a, b) => a.orderKey - b.orderKey)
+
+    // Hydrate folder nodes with their own mixed children recursively
+    return mixed.map(node => {
+      if (node.kind === 'folder') {
+        return {
+          kind: 'folder',
+          folder: node.folder,
+          children: buildMixedChildren(node.folder.id),
+        }
+      }
+      return { kind: 'fav', fav: node.fav }
+    })
   }
 
-  const topFolders = (childrenByParent.get(rootId) || []).sort((a, b) => a.order - b.order)
-  const topFavs    = (favsByParent.get(rootId) || []).sort((a, b) => a.order - b.order)
-
-  return [
-    ...topFolders.map(buildFolderNode),
-    ...topFavs.map(fav => ({ kind: 'fav', fav })),
-  ]
+  return buildMixedChildren(rootId)
 }
 
 /**
@@ -369,14 +375,21 @@ function FavoritesTreeNode({ node, accentColor, depth = 0, activeTabId }) {
   if (node.kind === 'fav') {
     return <SortableFavoriteRow id={node.fav.id} fav={node.fav} accentColor={accentColor} depth={depth} activeTabId={activeTabId} />
   }
+  // Folder node with interleaved children
+  const childIds = node.children.map(c =>
+    c.kind === 'folder' ? `fav-folder-${c.folder.id}` : c.fav.id
+  )
   return (
     <SortableFolderRow folder={node.folder} accentColor={accentColor} depth={depth} childCount={countFolderItems(node)}>
-      <SortableContext items={[...node.children.map(c => `fav-folder-${c.folder.id}`), ...node.favs.map(f => f.id)]} strategy={verticalListSortingStrategy}>
+      <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
         {node.children.map((child) => (
-          <FavoritesTreeNode key={child.folder.id} node={child} accentColor={accentColor} depth={depth + 1} activeTabId={activeTabId} />
-        ))}
-        {node.favs.map((fav) => (
-          <SortableFavoriteRow key={fav.id} id={fav.id} fav={fav} accentColor={accentColor} depth={depth + 1} activeTabId={activeTabId} />
+          <FavoritesTreeNode
+            key={child.kind === 'folder' ? child.folder.id : child.fav.id}
+            node={child}
+            accentColor={accentColor}
+            depth={depth + 1}
+            activeTabId={activeTabId}
+          />
         ))}
       </SortableContext>
     </SortableFolderRow>
@@ -384,8 +397,11 @@ function FavoritesTreeNode({ node, accentColor, depth = 0, activeTabId }) {
 }
 
 function countFolderItems(node) {
-  let count = node.favs.length
-  for (const child of node.children) count += countFolderItems(child)
+  let count = 0
+  for (const child of node.children) {
+    if (child.kind === 'fav') count += 1
+    else count += countFolderItems(child)
+  }
   return count
 }
 
@@ -393,7 +409,7 @@ export default function FavoritesBar({ favorites, folders, accentColor, favorite
   const { createFavoriteFolder, bookmarksFailed } = useStore()
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: 'favorites-droppable' })
 
-  const tree = buildTree(favorites, folders, favoritesRootId, activeTabId)
+  const tree = buildTree(favorites, folders, favoritesRootId)
   const topLevelIds = flattenForSortable(tree)
 
   return (
