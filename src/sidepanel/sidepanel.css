@@ -929,15 +929,13 @@ html, body, #root {
 }
 
 .folder-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
-  user-select: none;
-  border-radius: 6px;
-  height: 26px;
+  cursor: grab;
 }
+
+.folder-header:active {
+  cursor: grabbing;
+}
+
 
 .folder-header:hover {
   background: var(--hover-bg, rgba(0, 0, 0, 0.04));
@@ -1071,16 +1069,13 @@ html, body, #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 20px;
-  color: var(--text-tertiary, rgba(0,0,0,0.5));
-  cursor: grab;
-  font-size: 14px;
+  width: 12px;
+  color: var(--text-tertiary, rgba(0,0,0,0.3));
+  font-size: 12px;
   line-height: 1;
   letter-spacing: -1px;
   user-select: none;
-  opacity: 0.4;
-  transition: opacity 0.1s, color 0.1s;
+  pointer-events: none;  /* not interactive — whole row handles drag */
 }
 
 .folder-header:hover .folder-drag-handle {
