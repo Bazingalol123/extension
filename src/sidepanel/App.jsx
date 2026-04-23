@@ -207,29 +207,34 @@ export default function App() {
         }
       }
        else if (isFav) {
-        // Drop on folder header → move into that folder
-        if (String(over.id).startsWith('fav-folder-')) {
-          const folderId = String(over.id).replace('fav-folder-', '')
-          moveFavorite(active.id, folderId)
-          return
-        } 
-        // Drop on the favorites container (empty area) → move to root
-        if (String(over.id) === 'favorites-droppable' || String(over.id) === 'favorites-root-drop') {
-          moveFavorite(active.id, favoritesRootId)
-          return
+          const activeFav = sortedFavorites.find((f) => String(f.id) === String(active.id))
+
+          // Drop on a folder row → always nest into that folder
+          if (String(over.id).startsWith('fav-folder-')) {
+            const folderId = String(over.id).replace('fav-folder-', '')
+            moveFavorite(active.id, folderId)
+            return
+          }
+
+          // Drop on empty favorites area / root drop target → move to root
+          if (String(over.id) === 'favorites-droppable' || String(over.id) === 'favorites-root-drop') {
+            moveFavorite(active.id, favoritesRootId)
+            return
+          }
+
+          // Drop on another favorite
+          const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
+          if (overFav && activeFav) {
+            if (overFav.parentId !== activeFav.parentId) {
+              // Different parent → move to that parent
+              moveFavorite(active.id, overFav.parentId)
+              return
+            }
+            // Same parent → reorder to overFav's position
+            moveFavorite(active.id, activeFav.parentId, overFav.order)
+            return
+          }
         }
-        // Drop on another fav that's in a different parent → move into that parent
-        const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
-        const activeFav = sortedFavorites.find((f) => String(f.id) === String(active.id))
-        if (overFav && activeFav && overFav.parentId !== activeFav.parentId) {
-          moveFavorite(active.id, overFav.parentId)
-          return
-        }
-        // Same-parent reorder
-        const oi = sortedFavorites.findIndex((f) => String(f.id) === String(active.id))
-        const ni = sortedFavorites.findIndex((f) => String(f.id) === String(over.id))
-        if (oi !== -1 && ni !== -1) reorderFavorites(arrayMove(sortedFavorites, oi, ni).map((f) => f.id))
-      }  
         else if (isFolder) {
         const folderId = String(active.id).replace('fav-folder-', '')
         const activeFolder = favoriteFolders.find(f => f.id === folderId)
@@ -248,9 +253,15 @@ export default function App() {
           moveFavoriteFolder(folderId, destFolderId)
           return
         }
-        // Drop on favorite or root → move folder to that parent
+        // Drop on a favorite
         const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
         if (overFav) {
+          // Same parent → reorder folder to favorite's position (interleaved ordering)
+          if (activeFolder && activeFolder.parentId === overFav.parentId) {
+            moveFavoriteFolder(folderId, overFav.parentId, overFav.order)
+            return
+          }
+          // Different parent → move folder into favorite's parent
           moveFavoriteFolder(folderId, overFav.parentId)
           return
         }
@@ -258,7 +269,7 @@ export default function App() {
           moveFavoriteFolder(folderId, favoritesRootId)
           return
         }
-      }
+        }
       else {
         const oi = sortedPins.findIndex((p) => String(p.id) === String(active.id))
         const ni = sortedPins.findIndex((p) => String(p.id) === String(over.id))
