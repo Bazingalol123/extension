@@ -17,6 +17,7 @@
   --text-secondary: rgba(26,24,37,0.55);
   --text-tertiary:  rgba(26,24,37,0.30);
   --divider:        rgba(0,0,0,0.07);
+  --shadow-row:     0 1px 3px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.04);
   --shadow-tab:     0 1px 4px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05);
   --accent:         var(--space-color, #7C6AF7);
   --font: -apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
@@ -43,6 +44,7 @@
   --text-secondary: rgba(255,255,255,0.50);
   --text-tertiary:  rgba(255,255,255,0.28);
   --divider:        rgba(255,255,255,0.07);
+  --shadow-row:     0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.06);
   --shadow-tab:     0 1px 4px rgba(0,0,0,0.40), 0 0 0 1px rgba(255,255,255,0.05);
   --ctx-bg:     #252336;
   --ctx-border: rgba(255,255,255,0.10);
@@ -60,6 +62,7 @@
     --text-secondary: rgba(255,255,255,0.50);
     --text-tertiary:  rgba(255,255,255,0.28);
     --divider:        rgba(255,255,255,0.07);
+    --shadow-row:     0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.06);
     --shadow-tab:     0 1px 4px rgba(0,0,0,0.40), 0 0 0 1px rgba(255,255,255,0.05);
     --ctx-bg:     #252336;
     --ctx-border: rgba(255,255,255,0.10);
@@ -429,47 +432,64 @@ html, body, #root {
 }
 .section-empty { padding: 4px 14px 8px; font-size: 12px; color: var(--text-tertiary); }
 
-/* ─── Tab Item ───────────────────────────────────────── */
+/* ─── Tab Item (UNIFIED with favorites — white pill, 36px rows) ─────────────── */
 .tab-item {
   position: relative;
-  display: flex; align-items: center; gap: 8px;
-  padding: 0 8px 0 10px;
-  height: 32px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 10px;
+  height: 36px;
+  cursor: pointer;
   transition: background var(--ease);
   margin: 1px 7px;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 .tab-item:hover { background: var(--bg-hover); }
-.tab-item.active { background: var(--bg-active); box-shadow: var(--shadow-tab); }
-.tab-item.suspended { opacity: 0.55; }
-.tab-item.duplicate-flag { border-left: 2px solid #F59E0B; }
 
-.tab-accent {
-  width: 3px; height: 16px; border-radius: 2px;
-  background: transparent; flex-shrink: 0;
-  transition: background var(--ease);
+/* Active tab: solid white pill with subtle shadow (no border-left accent, no bold) */
+.tab-item.active {
+  background: var(--bg-card);
+  box-shadow: var(--shadow-row);
 }
-.tab-item.active .tab-accent { background: var(--space-color, var(--accent)); }
+.tab-item.active:hover {
+  background: var(--bg-card);
+}
+
+.tab-item.suspended { opacity: 0.55; }
+
+/* Duplicate-flag is orthogonal info; keep as a subtle left accent */
+.tab-item.duplicate-flag::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: #F59E0B;
+  border-radius: 2px;
+}
+
+/* Legacy accent bar — no longer used for active state; hide it */
+.tab-accent { display: none; }
 
 .tab-favicon {
-  width: 15px; height: 15px; border-radius: 3px; flex-shrink: 0; object-fit: contain;
+  width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0; object-fit: contain;
 }
 .tab-favicon-fallback {
-  width: 15px; height: 15px; border-radius: 3px;
+  width: 20px; height: 20px; border-radius: 5px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 8px; font-weight: 700; color: #fff;
+  font-size: 11px; font-weight: 500; color: #fff;
   flex-shrink: 0; text-transform: uppercase;
 }
 
 .tab-title {
   flex: 1; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-size: 12.5px; font-weight: 400;
+  font-size: 14px; font-weight: 400;
   color: var(--text-secondary);
   transition: color var(--ease);
 }
 .tab-item:hover .tab-title { color: var(--text-primary); }
-.tab-item.active .tab-title { color: var(--text-primary); font-weight: 500; }
+.tab-item.active .tab-title { color: var(--text-primary); }
 .tab-item.suspended .tab-title::after {
   content: ' · suspended';
   font-size: 10px;
@@ -478,7 +498,7 @@ html, body, #root {
 }
 
 .tab-close {
-  width: 16px; height: 16px; border-radius: 4px;
+  width: 18px; height: 18px; border-radius: 4px;
   background: transparent; border: none; color: var(--text-tertiary);
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   opacity: 0; flex-shrink: 0;
@@ -793,7 +813,7 @@ html, body, #root {
 .sessions-empty { padding: 20px 0; text-align: center; color: var(--text-tertiary); font-size: 12.5px; }
 
 
-/* ─── Phase 2b: Favorites rows ────────────────────────────────────────────── */
+/* ─── Favorites rows (unified 36px with white pill active) ───────────────── */
 
 .favorites-bar.v2 {
   display: flex;
@@ -820,31 +840,33 @@ html, body, #root {
 .favorite-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 6px;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
   cursor: pointer;
   user-select: none;
   position: relative;
-  height: 28px;
+  height: 36px;
 }
 
 .favorite-row:hover {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+  background: var(--bg-hover);
 }
 
+/* Active favorite: solid white pill with subtle shadow */
 .favorite-row.is-active {
-  background: color-mix(in srgb, var(--accent-color, #7C6AF7) 10%, transparent);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-row);
 }
 
 .favorite-row.is-active:hover {
-  background: color-mix(in srgb, var(--accent-color, #7C6AF7) 16%, transparent);
+  background: var(--bg-card);
 }
 
 .favorite-row .favorite-favicon {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
   flex-shrink: 0;
   object-fit: contain;
 }
@@ -853,14 +875,14 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   color: white;
 }
 
 .favorite-row .favorite-title {
   flex: 1;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -869,23 +891,23 @@ html, body, #root {
 
 .favorite-row .favorite-rename-input {
   flex: 1;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-primary);
-  background: var(--bg-secondary, white);
+  background: var(--bg-card);
   border: 1px solid var(--accent-color, #7C6AF7);
-  border-radius: 4px;
-  padding: 2px 6px;
+  border-radius: 5px;
+  padding: 3px 6px;
   outline: none;
 }
 
 .favorite-row .fav-action-btn {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border: none;
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 5px;
   font-size: 16px;
   line-height: 1;
   display: flex;
@@ -917,7 +939,7 @@ html, body, #root {
 .favorite-folder {
   display: flex;
   flex-direction: column;
-  border-radius: 6px;
+  border-radius: 10px;
 }
 
 .favorite-folder.drop-target {
@@ -928,11 +950,11 @@ html, body, #root {
   cursor: grab;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 6px;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
   user-select: none;
-  height: 28px;
+  height: 36px;
 }
 
 .folder-header:active {
@@ -940,7 +962,7 @@ html, body, #root {
 }
 
 .folder-header:hover {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+  background: var(--bg-hover);
 }
 
 .folder-chevron {
@@ -948,7 +970,8 @@ html, body, #root {
   color: var(--text-tertiary);
   transition: transform 0.15s;
   display: inline-block;
-  width: 12px;
+  width: 10px;
+  flex-shrink: 0;
 }
 
 .folder-chevron.collapsed {
@@ -956,13 +979,23 @@ html, body, #root {
 }
 
 .folder-icon {
-  font-size: 14px;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--space-color, var(--accent));
+}
+
+.folder-svg-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .folder-name {
   flex: 1;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -979,7 +1012,7 @@ html, body, #root {
 
 .favorites-empty {
   padding: 10px 8px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-tertiary);
   text-align: center;
   font-style: italic;
@@ -1024,7 +1057,7 @@ html, body, #root {
 }
 
 .favorite-folder .folder-header {
-  padding-right: 8px;
+  padding-right: 10px;
 }
 
 .favorite-folder.drop-target {
@@ -1086,11 +1119,14 @@ html, body, #root {
               0 0 8px rgba(124, 106, 247, 0.35);
 }
 
+/* Focused favorite: stronger shadow + accent ring, regular weight */
 .favorite-row.is-focused {
-  border-left: 3px solid var(--accent-color, #7C6AF7);
-  padding-left: calc(var(--row-padding, 8px) - 3px);
-  background: color-mix(in srgb, var(--accent-color, #7C6AF7) 8%, transparent);
-  font-weight: 600;
+  background: var(--bg-card);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1), 0 0 0 1px var(--space-color, var(--accent));
+}
+
+.favorite-row.is-focused:hover {
+  background: var(--bg-card);
 }
 
 .pinned-url-tile.is-focused.is-drifted {

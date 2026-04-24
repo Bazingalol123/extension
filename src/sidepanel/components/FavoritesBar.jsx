@@ -22,6 +22,28 @@ function RootDropTarget() {
   )
 }
 
+// ─── Folder icon (Arc-inspired, purple outline, open/closed variants) ────────
+
+function FolderIcon({ open = false }) {
+  if (open) {
+    return (
+      <svg className="folder-svg-icon" width="18" height="18" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" strokeWidth="1.8"
+           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1H3V7z" />
+        <path d="M3 9h18l-1.5 8a2 2 0 0 1-2 1.7H6.5a2 2 0 0 1-2-1.7L3 9z" />
+      </svg>
+    )
+  }
+  return (
+    <svg className="folder-svg-icon" width="18" height="18" viewBox="0 0 24 24"
+         fill="none" stroke="currentColor" strokeWidth="1.8"
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  )
+}
+
 // ─── FavoriteRow ─────────────────────────────────────────────────────────────
 
 export function FavoriteRow({ fav, accentColor, isDragging, activeTabId, inFolder, depth = 0 }) {
@@ -95,7 +117,7 @@ export function FavoriteRow({ fav, accentColor, isDragging, activeTabId, inFolde
     <>
       <div
         className={`favorite-row${isActive ? ' is-active' : ''}${isDrifted ? ' is-drifted' : ''}${isFocused ? ' is-focused' : ''}${isDragging ? ' is-dragging' : ''}`}
-        style={{ '--accent-color': accentColor, opacity: isDragging ? 0.5 : 1, paddingLeft: `${8 + depth * 20}px` }}
+        style={{ '--accent-color': accentColor, opacity: isDragging ? 0.5 : 1, paddingLeft: `${10 + depth * 20}px` }}
         onClick={handleRowClick}
         onDoubleClick={(e) => {
           if (e.target.closest('.fav-action-btn')) return
@@ -250,7 +272,7 @@ function FolderRow({ folder, accentColor, children, depth = 0 }) {
     <div className={`favorite-folder${isOver ? ' drop-target' : ''}`} ref={setDropRef}>
       <div
         className="folder-header"
-        style={{ paddingLeft: `${8 + depth * 20}px` }}
+        style={{ paddingLeft: `${10 + depth * 20}px` }}
         onClick={() => !editing && toggleFavoriteFolder(folder.id)}
         onDoubleClick={() => { setDraft(folder.title); setEditing(true) }}
         onContextMenu={(e) => {
@@ -259,7 +281,9 @@ function FolderRow({ folder, accentColor, children, depth = 0 }) {
         }}
       >
         <span className={`folder-chevron${collapsed ? ' collapsed' : ''}`}>▾</span>
-        <span className="folder-icon">📁</span>
+        <span className="folder-icon">
+          <FolderIcon open={!collapsed} />
+        </span>
         {editing ? (
           <input
             ref={inputRef}

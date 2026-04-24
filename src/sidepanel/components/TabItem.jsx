@@ -15,7 +15,7 @@ export default function TabItem({ tab, isActive, accentColor, spaces, activeSpac
   } = useStore()
 
   const [imgError, setImgError] = useState(false)
-  const [ctxMenu, setCtxMenu]   = useState(null) // { x, y, showMove }
+  const [ctxMenu, setCtxMenu]   = useState(null)
   const ctxRef = useRef(null)
 
   const favicon  = getFaviconSrc(tab.favIconUrl)
@@ -30,7 +30,6 @@ export default function TabItem({ tab, isActive, accentColor, spaces, activeSpac
     return () => document.removeEventListener('mousedown', handler)
   }, [ctxMenu])
 
-  // Reset img error when favicon changes
   useEffect(() => setImgError(false), [tab.favIconUrl])
 
   let hostname = ''
@@ -39,7 +38,7 @@ export default function TabItem({ tab, isActive, accentColor, spaces, activeSpac
   const openCtx = (e) => {
     e.preventDefault()
     const MENU_W = 192
-    const MENU_H = 300 // generous estimate including submenus
+    const MENU_H = 300
     const x = Math.min(e.clientX, window.innerWidth  - MENU_W - 8)
     const y = Math.min(e.clientY, window.innerHeight - MENU_H - 8)
     setCtxMenu({ x, y, showMove: false })
@@ -60,8 +59,6 @@ export default function TabItem({ tab, isActive, accentColor, spaces, activeSpac
         onContextMenu={openCtx}
         title={`${tab.title}\n${hostname}`}
       >
-        <div className="tab-accent" />
-
         {/* Favicon */}
         {favicon && !imgError ? (
           <img className="tab-favicon" src={favicon} onError={() => setImgError(true)} alt="" />
@@ -124,7 +121,7 @@ export default function TabItem({ tab, isActive, accentColor, spaces, activeSpac
                 </div>
               ))}
             </>
-          ) :  (
+          ) : (
             <>
               <div className="context-item" onClick={() => { duplicateTab(tab.id); setCtxMenu(null) }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -172,7 +169,6 @@ export default function TabItem({ tab, isActive, accentColor, spaces, activeSpac
                   Move to Space ›
                 </div>
               )}
-
 
               <div className="context-separator" />
 
