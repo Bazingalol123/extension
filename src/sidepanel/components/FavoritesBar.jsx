@@ -65,6 +65,7 @@ export function FavoriteRow({ fav, accentColor, isDragging,activeTabId, inFolder
     }
   }, [editing])
 
+
   const commitRename = () => {
     const next = draft.trim()
     if (next && next !== fav.title) renameFavorite(fav.id, next)
@@ -210,7 +211,7 @@ function SortableFolderRow({ folder, ...props }) {
 // ─── FolderRow ───────────────────────────────────────────────────────────────
 
 function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
-  const { toggleFavoriteFolder, renameFavoriteFolder, deleteFavoriteFolder, createFavoriteFolder, favoriteFolderState } = useStore()
+  const { toggleFavoriteFolder, renameFavoriteFolder, deleteFavoriteFolder, createFavoriteFolder, favoriteFolderState, pendingRenameFolderId  } = useStore()
   const collapsed = !!favoriteFolderState?.[folder.id]
 
   const [editing, setEditing] = useState(false)
@@ -232,6 +233,15 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
       inputRef.current.select()
     }
   }, [editing])
+
+  // Auto-enter edit mode when this folder was just created or just dragged into a folder
+  useEffect(() => {
+    if (pendingRenameFolderId === folder.id) {
+      setDraft(folder.title)
+      setEditing(true)
+      useStore.setState({ pendingRenameFolderId: null })
+    }
+  }, [pendingRenameFolderId, folder.id, folder.title])
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `fav-folder-${folder.id}` })
 

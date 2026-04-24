@@ -61,11 +61,11 @@ const useStore = create((set, get) => ({
   favoriteOwnerships: [],
   favoritesRootId:    null,
   pinOwnerships: [],
+  pendingRenameFolderId: null,
+
 
   setMyWindowId: (id) => set({ myWindowId: id }),
 
-  // Setter for myWindowId, called from main.jsx on mount
-  setMyWindowId: (id) => set({ myWindowId: id }),
   // ── Load ──────────────────────────────────────────────────────────────────
   load: async () => {
     try {
@@ -240,12 +240,19 @@ const useStore = create((set, get) => ({
   },
 
   createFavoriteFolder: async (title, parentId) => {
-    const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, {
-      title: title || 'New folder',
-      ...(parentId ? { parentId } : {}),
-    })
-    if (state) set(parseState(state))
-  },
+  const before = get().favoriteFolders.map(f => f.id)
+  const state = await sendMessage(Messages.CREATE_FAVORITE_FOLDER, {
+    title: title || 'New folder',
+    ...(parentId ? { parentId } : {}),
+  })
+  if (state) {
+    set(parseState(state))
+    // Find the newly-created folder (it won't be in `before`)
+    const after = (state.favoriteFolders ?? [])
+    const newFolder = after.find(f => !before.includes(f.id))
+    if (newFolder) set({ pendingRenameFolderId: newFolder.id })
+  }
+},
 
   deleteFavoriteFolder: async (id) => {
     const state = await sendMessage(Messages.DELETE_FAVORITE_FOLDER, { id })

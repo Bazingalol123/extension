@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Arc UX for Chrome",
-  "version": "1.4.1",
-  "description": "Arc browser UX for Brave — spaces, tabs, command bar, dark mode, sessions",
+  "name": "Foo",
+  "version": "1.5.0",
+  "description": "Foo Sidepanel",
   "permissions": ["tabs", "tabGroups", "sidePanel", "storage", "scripting", "commands", "history", "windows", "bookmarks"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background/service-worker.js", "type": "module" },

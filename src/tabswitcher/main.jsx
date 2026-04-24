@@ -28,18 +28,6 @@ async function loadTabs() {
         }
       }
 
-      // Fallback: if no access order, use recent-first from tabs
-      if (mru.length === 0) {
-        const sorted = [...tabs]
-          .filter((t) => t.url && !isInternal(t.url))
-          .sort((a, b) => b.openedAt - a.openedAt)
-          .slice(0, 5)
-        for (const t of sorted) {
-          const space = spaces.find((s) => s.id === t.spaceId)
-          mru.push({ ...t, spaceEmoji: space?.emoji || '', spaceColor: space?.color || '#8B7CF6' })
-        }
-      }
-
       resolve(mru)
     })
   })

@@ -241,17 +241,36 @@ export default function App() {
 
         // Drop on another folder
         if (String(over.id).startsWith('fav-folder-') && String(over.id) !== String(active.id)) {
-          const destFolderId = String(over.id).replace('fav-folder-', '')
-          const destFolder = favoriteFolders.find(f => f.id === destFolderId)
+        const destFolderId = String(over.id).replace('fav-folder-', '')
+        const destFolder = favoriteFolders.find(f => f.id === destFolderId)
 
-          // Same parent → reorder (move to dest's position)
-          if (activeFolder && destFolder && activeFolder.parentId === destFolder.parentId) {
-            moveFavoriteFolder(folderId, destFolder.parentId, destFolder.order)
+        // Determine drop zone based on vertical position within the target row.
+        // Top third → reorder above, bottom third → reorder below, middle third → nest.
+        const overRect   = over.rect
+        const activeRect = active.rect.current?.translated ?? active.rect.current?.initial
+        const dropY      = activeRect ? activeRect.top + activeRect.height / 2 : null
+        let zone = 'middle'
+        if (dropY != null && overRect) {
+            const third = overRect.height / 3
+            if (dropY < overRect.top + third)              zone = 'above'
+            else if (dropY > overRect.top + overRect.height - third) zone = 'below'
+            else                                           zone = 'middle'
+        }
+
+        if (zone === 'middle') {
+            // Nest inside — works for siblings or across parents
+            moveFavoriteFolder(folderId, destFolderId)
+            useStore.setState({ pendingRenameFolderId: folderId })
             return
-          }
-          // Different parent → nest inside
-          moveFavoriteFolder(folderId, destFolderId)
-          return
+        }
+
+        // Reorder relative to destFolder (above / below)
+        if (activeFolder && destFolder) {
+            const targetOrder = zone === 'above' ? destFolder.order : destFolder.order + 1
+            moveFavoriteFolder(folderId, destFolder.parentId, targetOrder)
+            return
+        }
+        return
         }
         // Drop on a favorite
         const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
