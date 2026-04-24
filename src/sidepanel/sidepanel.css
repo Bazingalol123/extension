@@ -17,8 +17,11 @@
   --text-secondary: rgba(26,24,37,0.55);
   --text-tertiary:  rgba(26,24,37,0.30);
   --divider:        rgba(0,0,0,0.07);
+  --hairline:       rgba(0,0,0,0.08);
   --shadow-row:     0 1px 3px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.04);
   --shadow-tab:     0 1px 4px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05);
+  --shadow-tile:    0 1px 2px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.04);
+  --shadow-tile-hover: 0 3px 8px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04);
   --accent:         var(--space-color, #7C6AF7);
   --font: -apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
   --ease: .12s cubic-bezier(.4,0,.2,1);
@@ -44,13 +47,15 @@
   --text-secondary: rgba(255,255,255,0.50);
   --text-tertiary:  rgba(255,255,255,0.28);
   --divider:        rgba(255,255,255,0.07);
+  --hairline:       rgba(255,255,255,0.08);
   --shadow-row:     0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.06);
   --shadow-tab:     0 1px 4px rgba(0,0,0,0.40), 0 0 0 1px rgba(255,255,255,0.05);
+  --shadow-tile:    0 1px 2px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.06);
+  --shadow-tile-hover: 0 3px 10px rgba(0,0,0,0.45), 0 0 0 0.5px rgba(255,255,255,0.08);
   --ctx-bg:     #252336;
   --ctx-border: rgba(255,255,255,0.10);
 }
 
-/* Auto dark: follow OS when no explicit theme is set */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
     --bg:           #1A1825;
@@ -62,8 +67,11 @@
     --text-secondary: rgba(255,255,255,0.50);
     --text-tertiary:  rgba(255,255,255,0.28);
     --divider:        rgba(255,255,255,0.07);
+    --hairline:       rgba(255,255,255,0.08);
     --shadow-row:     0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.06);
     --shadow-tab:     0 1px 4px rgba(0,0,0,0.40), 0 0 0 1px rgba(255,255,255,0.05);
+    --shadow-tile:    0 1px 2px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(255,255,255,0.06);
+    --shadow-tile-hover: 0 3px 10px rgba(0,0,0,0.45), 0 0 0 0.5px rgba(255,255,255,0.08);
     --ctx-bg:     #252336;
     --ctx-border: rgba(255,255,255,0.10);
   }
@@ -88,19 +96,33 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 3px; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
 
-/* ─── Sidebar Layout ─────────────────────────────────── */
+/* ─── Sidebar Layout — with accent gradient wash ───────── */
 .sidebar {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
   background: var(--bg);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--space-color, #8B7CF6) 14%, var(--bg)) 0%,
+    color-mix(in srgb, var(--space-color, #8B7CF6) 6%, var(--bg)) 45%,
+    var(--bg) 100%
+  );
   transition: background var(--ease);
+}
+
+[data-theme="dark"] .sidebar {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--space-color, #8B7CF6) 10%, var(--bg)) 0%,
+    var(--bg) 100%
+  );
 }
 
 .sidebar-header-row {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   padding: 10px 8px 6px;
   gap: 4px;
   flex-shrink: 0;
@@ -124,41 +146,46 @@ html, body, #root {
 .collapse-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
 
 /* ─── Space Selector ─────────────────────────────────── */
-.space-selector { flex: 1; display: flex; align-items: center; gap: 4px; overflow: hidden; }
-
-.spaces-list {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow-x: auto;
+.space-selector {
   flex: 1;
-  scrollbar-width: none;
-}
-.spaces-list::-webkit-scrollbar { display: none; }
-
-.space-pill {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 9px 4px 6px;
-  border-radius: 20px;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--ease);
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  position: relative;
+  gap: 8px;
+  overflow: hidden;
+  min-width: 0;
 }
-.space-pill:hover { background: var(--bg-hover); color: var(--text-primary); }
-.space-pill.active { background: var(--space-color, var(--accent)); color: #fff; }
-.space-pill.active .space-tab-count { color: rgba(255,255,255,0.7); }
 
-/* Tab count badge on space pill */
-.space-tab-count {
+.active-space-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: default;
+  overflow: hidden;
+  flex-shrink: 1;
+  min-width: 0;
+  transition: background var(--ease);
+}
+.active-space-label:hover {
+  background: var(--bg-hover);
+}
+.active-space-emoji {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.active-space-name {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.active-space-count {
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -168,15 +195,38 @@ html, body, #root {
   min-width: 16px;
   text-align: center;
   line-height: 14px;
+  flex-shrink: 0;
 }
-.space-pill.active .space-tab-count {
-  background: rgba(0,0,0,0.15);
-  color: rgba(255,255,255,0.8);
+
+.spaces-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.space-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--space-color, #ccc);
+  border: none;
+  padding: 0;
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity var(--ease), transform var(--ease);
+}
+.space-dot:hover {
+  opacity: 0.85;
+}
+.space-dot.active {
+  opacity: 1;
+  transform: scale(1.2);
+  box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 2.5px var(--space-color, var(--accent));
 }
 
 .add-space-btn {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: none;
   background: transparent;
@@ -185,9 +235,10 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 14px;
   flex-shrink: 0;
   transition: background var(--ease), color var(--ease);
+  margin-left: auto;
 }
 .add-space-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 
@@ -248,30 +299,58 @@ html, body, #root {
 .btn-sm.secondary { background: var(--bg-hover); color: var(--text-secondary); }
 .btn-sm.secondary:hover { background: var(--divider); }
 
-/* ─── Tab Search ─────────────────────────────────────── */
-.tab-search-bar {
-  padding: 4px 8px 2px;
+/* ─── Section labels + dividers (shared) ──────────────── */
+.section-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: 0;
+  padding: 12px 14px 4px;
+  user-select: none;
   flex-shrink: 0;
+}
+
+.section-divider {
+  height: 1px;
+  background: var(--hairline);
+  border: 0;
+  margin: 6px 12px;
+  flex-shrink: 0;
+}
+
+/* ─── Tab Search (Arc-style: semi-transparent, no border) ───────────────── */
+.tab-search-bar {
+  padding: 0 10px 6px;
+  flex-shrink: 0;
+}
+.tab-search-wrapper {
+  position: relative;
+  background: rgba(255,255,255,0.55);
+  border-radius: 8px;
+  transition: background var(--ease);
+}
+[data-theme="dark"] .tab-search-wrapper {
+  background: rgba(255,255,255,0.06);
+}
+.tab-search-wrapper:focus-within {
+  background: var(--bg-card);
 }
 .tab-search-input {
   width: 100%;
-  height: 26px;
-  border-radius: 7px;
-  border: 1.5px solid var(--divider);
-  background: var(--bg-card);
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   font-family: var(--font);
   padding: 0 8px 0 28px;
   outline: none;
-  transition: border-color var(--ease), background var(--ease);
   caret-color: var(--accent);
 }
-.tab-search-input:focus { border-color: var(--accent); }
 .tab-search-input::placeholder { color: var(--text-tertiary); }
-.tab-search-wrapper {
-  position: relative;
-}
 .tab-search-icon {
   position: absolute;
   left: 8px;
@@ -294,36 +373,58 @@ html, body, #root {
 }
 .tab-search-clear:hover { color: var(--text-primary); }
 
-/* ─── Pinned URLs Bar ────────────────────────────────── */
+/* ─── Pinned URLs Bar (floating tiles, no border) ─────── */
 .pinned-urls-bar {
   padding: 6px 10px 8px;
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
   flex-shrink: 0;
 }
 .pinned-url-tile {
   position: relative;
-  width: 34px; height: 34px;
-  border-radius: 9px;
-  background: rgba(255,255,255,0.70);
-  border: 1.5px solid rgba(0,0,0,0.06);
-  display: flex; align-items: center; justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: none;
+  box-shadow: var(--shadow-tile);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: background var(--ease), transform var(--ease), box-shadow var(--ease);
 }
-[data-theme="dark"] .pinned-url-tile { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.08); }
-.pinned-url-tile:hover { background: var(--bg-card); transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,0.12); }
-.pinned-url-tile.is-open { opacity: 1; border-color: var(--space-color, var(--accent)); }
-.pinned-url-tile.is-closed { opacity: 0.5; filter: grayscale(30%); }
-.pinned-url-tile.is-closed:hover { opacity: 0.78; filter: grayscale(0%); }
-.pinned-img { width: 18px; height: 18px; border-radius: 3px; object-fit: contain; }
+[data-theme="dark"] .pinned-url-tile {
+  background: rgba(255,255,255,0.08);
+}
+.pinned-url-tile:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-tile-hover);
+}
+.pinned-url-tile.is-open {
+  box-shadow: var(--shadow-tile), 0 0 0 1.5px var(--space-color, var(--accent));
+}
+.pinned-url-tile.is-closed {
+  opacity: 0.55;
+  filter: grayscale(25%);
+}
+.pinned-url-tile.is-closed:hover {
+  opacity: 0.85;
+  filter: grayscale(0%);
+}
+.pinned-img { width: 20px; height: 20px; border-radius: 4px; object-fit: contain; }
 .pinned-initial {
-  font-size: 11px; font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   color: #fff;
   text-transform: uppercase;
-  width: 18px; height: 18px; border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .pinned-tooltip {
   position: absolute;
@@ -340,22 +441,27 @@ html, body, #root {
   position: absolute; bottom: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%;
   background: #34D399;
-  border: 1px solid var(--bg);
+  border: 1px solid var(--bg-card);
 }
 
 /* ─── Favorites Bar ──────────────────────────────────── */
 .favorites-bar {
-  padding: 0 10px 8px;
-  border-bottom: 1px solid var(--divider);
+  padding: 0 10px 4px;
   flex-shrink: 0;
-  min-height: 48px;
+  min-height: 32px;
 }
 .favorites-bar.drop-target { background: rgba(124,106,247,0.05); }
+
 .fav-section-label {
-  font-size: 9.5px; font-weight: 700; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--text-tertiary);
-  padding: 0 2px 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 8px 6px 4px;
+  user-select: none;
 }
+
 .fav-grid { display: flex; flex-wrap: wrap; gap: 5px; min-height: 32px; }
 .fav-tile {
   position: relative;
@@ -423,7 +529,7 @@ html, body, #root {
 .submenu-space-item:hover { background: var(--bg-hover); }
 
 /* ─── Tabs Area ──────────────────────────────────────── */
-.tabs-area { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 0; }
+.tabs-area { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 0 4px; }
 .section { margin-bottom: 0; }
 .section-header {
   padding: 8px 14px 3px;
@@ -432,7 +538,7 @@ html, body, #root {
 }
 .section-empty { padding: 4px 14px 8px; font-size: 12px; color: var(--text-tertiary); }
 
-/* ─── Tab Item (UNIFIED with favorites — white pill, 36px rows) ─────────────── */
+/* ─── Tab Item (white pill, 36px rows) ─────────────── */
 .tab-item {
   position: relative;
   display: flex; align-items: center; gap: 10px;
@@ -445,7 +551,6 @@ html, body, #root {
 }
 .tab-item:hover { background: var(--bg-hover); }
 
-/* Active tab: solid white pill with subtle shadow (no border-left accent, no bold) */
 .tab-item.active {
   background: var(--bg-card);
   box-shadow: var(--shadow-row);
@@ -456,7 +561,6 @@ html, body, #root {
 
 .tab-item.suspended { opacity: 0.55; }
 
-/* Duplicate-flag is orthogonal info; keep as a subtle left accent */
 .tab-item.duplicate-flag::before {
   content: '';
   position: absolute;
@@ -468,7 +572,6 @@ html, body, #root {
   border-radius: 2px;
 }
 
-/* Legacy accent bar — no longer used for active state; hide it */
 .tab-accent { display: none; }
 
 .tab-favicon {
@@ -514,7 +617,6 @@ html, body, #root {
 /* ─── Divider ────────────────────────────────────────── */
 .divider { height: 1px; background: var(--divider); margin: 4px 14px; }
 
-
 /* ─── Recently Closed ────────────────────────────────── */
 .recently-closed-bar {
   padding: 6px 8px 4px;
@@ -526,7 +628,7 @@ html, body, #root {
   padding: 2px 2px 4px;
 }
 .recently-closed-label {
-  font-size: 10px; font-weight: 700; letter-spacing: .08em;
+  font-size: 10px; font-weight: 500; letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--text-tertiary);
 }
 .recently-closed-clear {
@@ -555,7 +657,7 @@ html, body, #root {
   border-top: 1px solid var(--divider);
   display: flex; align-items: center; gap: 1px;
   flex-shrink: 0;
-  background: var(--bg);
+  background: transparent;
 }
 .bottom-btn {
   flex: 1; height: 28px; border-radius: var(--radius-sm);
@@ -576,9 +678,24 @@ html, body, #root {
   height: 100%; color: var(--text-tertiary); font-size: 12px;
 }
 
-/* ─── Collapsed Rail ─────────────────────────────────── */
+/* ─── Collapsed Rail (matches gradient wash) ─────────────────────────────── */
 .sidebar.collapsed {
-  width: 52px; align-items: center; padding: 8px 0; gap: 2px;
+  width: 52px;
+  align-items: center;
+  padding: 8px 0;
+  gap: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--space-color, #8B7CF6) 16%, var(--bg)) 0%,
+    color-mix(in srgb, var(--space-color, #8B7CF6) 4%, var(--bg)) 100%
+  );
+}
+[data-theme="dark"] .sidebar.collapsed {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--space-color, #8B7CF6) 12%, var(--bg)) 0%,
+    var(--bg) 100%
+  );
 }
 .collapse-toggle {
   width: 36px; height: 36px; border-radius: var(--radius-md);
@@ -819,16 +936,16 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 8px 8px 8px;
+  padding: 0 8px 4px;
 }
 
 .favorites-bar.v2 .fav-section-label {
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  padding: 4px 6px 2px 6px;
-  letter-spacing: 0.05em;
+  padding: 8px 6px 4px;
+  letter-spacing: 0.1em;
 }
 
 .favorites-list {
@@ -853,7 +970,6 @@ html, body, #root {
   background: var(--bg-hover);
 }
 
-/* Active favorite: solid white pill with subtle shadow */
 .favorite-row.is-active {
   background: var(--bg-card);
   box-shadow: var(--shadow-row);
@@ -1091,8 +1207,8 @@ html, body, #root {
   height: 16px;
   border-radius: 50%;
   border: none;
-  background: var(--bg-primary, white);
-  color: var(--text-secondary, rgba(0,0,0,0.7));
+  background: var(--bg-card);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
   line-height: 1;
@@ -1111,15 +1227,16 @@ html, body, #root {
   filter: brightness(0.95);
 }
 
-/* Focused state — the owned tab is the currently-active tab in this window */
+/* Focused state — owned tab is the currently-focused tab in this window */
 .pinned-url-tile.is-focused {
-  outline: 3px solid var(--space-color, var(--accent));
-  outline-offset: -3px;
-  box-shadow: 0 0 0 1px var(--space-color, var(--accent)) inset,
-              0 0 8px rgba(124, 106, 247, 0.35);
+  box-shadow: var(--shadow-tile-hover), 0 0 0 2px var(--space-color, var(--accent));
 }
 
-/* Focused favorite: stronger shadow + accent ring, regular weight */
+.pinned-url-tile.is-focused.is-drifted {
+  box-shadow: var(--shadow-tile-hover), 0 0 0 2px #f97316;
+}
+
+/* Focused favorite: stronger shadow + accent ring (regular weight) */
 .favorite-row.is-focused {
   background: var(--bg-card);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1), 0 0 0 1px var(--space-color, var(--accent));
@@ -1127,10 +1244,4 @@ html, body, #root {
 
 .favorite-row.is-focused:hover {
   background: var(--bg-card);
-}
-
-.pinned-url-tile.is-focused.is-drifted {
-  outline-color: #f97316;
-  box-shadow: 0 0 0 1px #f97316 inset,
-              0 0 8px rgba(249, 115, 22, 0.35);
 }

@@ -45,12 +45,9 @@ export default function App() {
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
     const down = (e) => {
-      // Alt+S — toggle sidebar
       if (e.altKey && !e.ctrlKey && e.key.toLowerCase() === 's') {
         e.preventDefault(); setSidebarCollapsed(!sidebarCollapsed); return
       }
-
-      // Ctrl+T — open centered new tab modal popup window
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't' && !e.shiftKey) {
         e.preventDefault()
         chrome.runtime.sendMessage({
@@ -60,12 +57,6 @@ export default function App() {
         }).catch(() => {})
         return
       }
-
-      // Ctrl+Q — open Tab Switcher popup window
-      // NOTE: Ctrl+Tab cannot be intercepted by extension JavaScript — the browser
-      // handles it at the native level before any JS keydown event fires.
-      // Ctrl+Q is not reserved by any browser and works reliably in the side panel.
-      // The BottomBar also has a click button as a permanent fallback.
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'q') {
         e.preventDefault()
         chrome.runtime.sendMessage({
@@ -75,11 +66,6 @@ export default function App() {
         }).catch(() => {})
         return
       }
-
-      // Ctrl+1–9 — switch to Nth space
-      // Using Ctrl (not Alt) intentionally: the side panel's separate window
-      // context should capture these before the browser's tab-switching shortcut.
-      // e.preventDefault() here prevents the browser from also switching to tab N.
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key >= '1' && e.key <= '9') {
         const idx = parseInt(e.key, 10) - 1
         if (idx < spaces.length) {
@@ -88,8 +74,6 @@ export default function App() {
         }
         return
       }
-
-      // Ctrl+F — focus tab search
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         document.getElementById('tab-search-input')?.focus()
@@ -100,7 +84,6 @@ export default function App() {
     return () => document.removeEventListener('keydown', down)
   }, [sidebarCollapsed, setSidebarCollapsed, spaces, switchSpace])
 
-  // Listen for OPEN_NEW_TAB_MODAL from background
   useEffect(() => {
     const listener = (msg) => {
       if (msg.type === Messages.OPEN_NEW_TAB_MODAL) setShowNewTabModal(true)
@@ -109,21 +92,16 @@ export default function App() {
     return () => chrome.runtime.onMessage.removeListener(listener)
   }, [])
 
-  // Scroll active tab into view on space switch
   useEffect(() => {
     if (!activeTabId || !tabsAreaRef.current) return
     const el = tabsAreaRef.current.querySelector(`[data-tab-id="${activeTabId}"]`)
     el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [activeSpaceId, activeTabId])
 
-  // ── Derived data ───────────────────────────────────────────────────────────
   const activeSpace   = useMemo(() => spaces.find((s) => s.id === activeSpaceId), [spaces, activeSpaceId])
   const accentColor   = activeSpace?.color ?? '#7C6AF7'
 
-  // Phase 1: narrow to this sidepanel's window first.
-  // While myWindowId is resolving (briefly on mount), render nothing rather than
-  // leak other-window tabs into this view.
- const windowTabs = useMemo(
+  const windowTabs = useMemo(
     () => {
       if (myWindowId == null) return []
       const favOwnedIds = new Set((favoriteOwnerships || []).filter(o => o.windowId === myWindowId).map(o => o.tabId))
@@ -143,7 +121,6 @@ export default function App() {
     [spaceTabs]
   )
 
-   
   const sortedFavorites = useMemo(() => [...favorites].sort((a, b) => a.order - b.order), [favorites])
   const sortedPins      = useMemo(() => [...pinnedUrls].sort((a, b) => a.order - b.order), [pinnedUrls])
 
@@ -209,28 +186,23 @@ export default function App() {
        else if (isFav) {
           const activeFav = sortedFavorites.find((f) => String(f.id) === String(active.id))
 
-          // Drop on a folder row → always nest into that folder
           if (String(over.id).startsWith('fav-folder-')) {
             const folderId = String(over.id).replace('fav-folder-', '')
             moveFavorite(active.id, folderId)
             return
           }
 
-          // Drop on empty favorites area / root drop target → move to root
           if (String(over.id) === 'favorites-droppable' || String(over.id) === 'favorites-root-drop') {
             moveFavorite(active.id, favoritesRootId)
             return
           }
 
-          // Drop on another favorite
           const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
           if (overFav && activeFav) {
             if (overFav.parentId !== activeFav.parentId) {
-              // Different parent → move to that parent
               moveFavorite(active.id, overFav.parentId)
               return
             }
-            // Same parent → reorder to overFav's position
             moveFavorite(active.id, activeFav.parentId, overFav.order)
             return
           }
@@ -239,13 +211,10 @@ export default function App() {
         const folderId = String(active.id).replace('fav-folder-', '')
         const activeFolder = favoriteFolders.find(f => f.id === folderId)
 
-        // Drop on another folder
         if (String(over.id).startsWith('fav-folder-') && String(over.id) !== String(active.id)) {
         const destFolderId = String(over.id).replace('fav-folder-', '')
         const destFolder = favoriteFolders.find(f => f.id === destFolderId)
 
-        // Determine drop zone based on vertical position within the target row.
-        // Top third → reorder above, bottom third → reorder below, middle third → nest.
         const overRect   = over.rect
         const activeRect = active.rect.current?.translated ?? active.rect.current?.initial
         const dropY      = activeRect ? activeRect.top + activeRect.height / 2 : null
@@ -258,13 +227,11 @@ export default function App() {
         }
 
         if (zone === 'middle') {
-            // Nest inside — works for siblings or across parents
             moveFavoriteFolder(folderId, destFolderId)
             useStore.setState({ pendingRenameFolderId: folderId })
             return
         }
 
-        // Reorder relative to destFolder (above / below)
         if (activeFolder && destFolder) {
             const targetOrder = zone === 'above' ? destFolder.order : destFolder.order + 1
             moveFavoriteFolder(folderId, destFolder.parentId, targetOrder)
@@ -272,15 +239,12 @@ export default function App() {
         }
         return
         }
-        // Drop on a favorite
         const overFav = sortedFavorites.find((f) => String(f.id) === String(over.id))
         if (overFav) {
-          // Same parent → reorder folder to favorite's position (interleaved ordering)
           if (activeFolder && activeFolder.parentId === overFav.parentId) {
             moveFavoriteFolder(folderId, overFav.parentId, overFav.order)
             return
           }
-          // Different parent → move folder into favorite's parent
           moveFavoriteFolder(folderId, overFav.parentId)
           return
         }
@@ -302,7 +266,6 @@ export default function App() {
 
   if (loading) return <div className="loading-state">Loading…</div>
 
-  // ── Rail mode ──────────────────────────────────────────────────────────────
   if (sidebarCollapsed) {
     const sortedFavs = [...favorites].sort((a, b) => a.order - b.order)
     return (
@@ -331,7 +294,9 @@ export default function App() {
     )
   }
 
-  // ── Expanded sidebar ───────────────────────────────────────────────────────
+  const showFavoritesDivider = pinnedUrls.length > 0
+  const hasAnyFavorites = sortedFavorites.length > 0 || favoriteFolders.length > 0
+
   return (
     <div className="sidebar" style={{ '--space-color': accentColor }}>
       <div className="sidebar-header-row">
@@ -348,28 +313,34 @@ export default function App() {
         </button>
       </div>
 
-      {/* Tab search */}
-      <div className="tab-search-bar">
-        <div className="tab-search-wrapper">
-          <svg className="tab-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input
-            id="tab-search-input"
-            className="tab-search-input"
-            placeholder="Filter tabs… (Ctrl+F)"
-            value={tabSearch}
-            onChange={(e) => setTabSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && setTabSearch('')}
-          />
-          {tabSearch && <button className="tab-search-clear" onClick={() => setTabSearch('')}>×</button>}
-        </div>
-      </div>
-
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         {pinnedUrls.length > 0 && <PinnedUrlsBar pins={sortedPins} accentColor={accentColor} tabs={windowTabs} activeTabId={activeTabId} />}
+
+        {showFavoritesDivider && hasAnyFavorites && <hr className="section-divider" />}
+
         <FavoritesBar favorites={sortedFavorites} folders={favoriteFolders} accentColor={accentColor} favoritesRootId={favoritesRootId} activeTabId={activeTabId}/>
 
+        {hasAnyFavorites && <hr className="section-divider" />}
+
+        <p className="section-label">Tabs</p>
+
+        {/* Tab search — moved here, below favorites, above tabs */}
+        <div className="tab-search-bar">
+          <div className="tab-search-wrapper">
+            <svg className="tab-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              id="tab-search-input"
+              className="tab-search-input"
+              placeholder="Filter tabs… (Ctrl+F)"
+              value={tabSearch}
+              onChange={(e) => setTabSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setTabSearch('')}
+            />
+            {tabSearch && <button className="tab-search-clear" onClick={() => setTabSearch('')}>×</button>}
+          </div>
+        </div>
 
         <div className="tabs-area" ref={tabsAreaRef}>
           <div className="section">
