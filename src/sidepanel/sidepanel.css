@@ -345,7 +345,7 @@ html, body, #root {
   padding: 0 10px 8px;
   border-bottom: 1px solid var(--divider);
   flex-shrink: 0;
-  min-height: 48px; /* Keep drop zone even when empty */
+  min-height: 48px;
 }
 .favorites-bar.drop-target { background: rgba(124,106,247,0.05); }
 .fav-section-label {
@@ -841,10 +841,6 @@ html, body, #root {
   background: color-mix(in srgb, var(--accent-color, #7C6AF7) 16%, transparent);
 }
 
-.favorite-row.in-folder {
-  padding-left: 22px;
-}
-
 .favorite-row .favorite-favicon {
   width: 16px;
   height: 16px;
@@ -909,7 +905,7 @@ html, body, #root {
 }
 
 .favorite-row .fav-action-btn.action-minus {
-  opacity: 0.8;  /* active state always shows the - button subtly */
+  opacity: 0.8;
 }
 
 .favorite-row:hover .fav-action-btn.action-minus {
@@ -930,12 +926,18 @@ html, body, #root {
 
 .folder-header {
   cursor: grab;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  user-select: none;
+  height: 28px;
 }
 
 .folder-header:active {
   cursor: grabbing;
 }
-
 
 .folder-header:hover {
   background: var(--hover-bg, rgba(0, 0, 0, 0.04));
@@ -967,41 +969,13 @@ html, body, #root {
   white-space: nowrap;
 }
 
-.folder-count {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  background: rgba(0, 0, 0, 0.05);
-  padding: 1px 6px;
-  border-radius: 8px;
-}
-
 .folder-children {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding-left: 6px;
 }
 
-/* ─── Footer ──── */
-
-.favorites-add-folder-btn {
-  margin-top: 4px;
-  padding: 5px 8px;
-  border: 1px dashed var(--border-color, rgba(0, 0, 0, 0.12));
-  background: transparent;
-  border-radius: 6px;
-  color: var(--text-tertiary);
-  font-size: 11.5px;
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-}
-
-.favorites-add-folder-btn:hover {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.03));
-  color: var(--text-secondary);
-  border-color: var(--text-tertiary);
-}
+/* ─── Empty state / warnings ──── */
 
 .favorites-empty {
   padding: 10px 8px;
@@ -1021,9 +995,11 @@ html, body, #root {
   border: 1px solid #fcd34d;
 }
 
+/* ─── Drift states ──── */
 
 .favorite-row.is-drifted {
   opacity: 0.85;
+  cursor: default;
 }
 
 .favorite-row.is-drifted .favorite-title::after {
@@ -1037,10 +1013,6 @@ html, body, #root {
   vertical-align: middle;
 }
 
-.favorite-row.is-drifted {
-  cursor: default;  /* disabled row */
-}
-
 .favorite-row .fav-action-btn.action-reset {
   font-size: 13px;
   margin-right: 2px;
@@ -1051,10 +1023,6 @@ html, body, #root {
   opacity: 1;
 }
 
-/* Nested folders: depth indentation handled inline via paddingLeft.
-   Chevron position stays anchored to the row-level padding-left so it
-   visually aligns with each level's indent. */
-
 .favorite-folder .folder-header {
   padding-right: 8px;
 }
@@ -1064,33 +1032,7 @@ html, body, #root {
   outline-offset: -2px;
 }
 
-
-.folder-drag-handle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  color: var(--text-tertiary, rgba(0,0,0,0.3));
-  font-size: 12px;
-  line-height: 1;
-  letter-spacing: -1px;
-  user-select: none;
-  pointer-events: none;  /* not interactive — whole row handles drag */
-}
-
-.folder-header:hover .folder-drag-handle {
-  opacity: 1;
-  color: var(--text-secondary, rgba(0,0,0,0.7));
-}
-
-.folder-drag-handle:hover {
-  color: var(--accent-color, #7C6AF7);
-}
-
-.folder-drag-handle:active {
-  cursor: grabbing;
-}
-
+/* ─── Pinned tile drift/actions ──── */
 
 .pinned-url-tile.is-drifted {
   cursor: default;
@@ -1135,7 +1077,6 @@ html, body, #root {
 .pin-action-btn:hover {
   filter: brightness(0.95);
 }
-
 
 /* Focused state — the owned tab is the currently-active tab in this window */
 .pinned-url-tile.is-focused {

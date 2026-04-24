@@ -4,6 +4,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import useStore from '../store'
 import { getFaviconSrc, getFaviconFallback, urlsMatch } from '@shared/utils.js'
+
 function RootDropTarget() {
   const { setNodeRef, isOver } = useDroppable({ id: 'favorites-root-drop' })
   return (
@@ -21,10 +22,9 @@ function RootDropTarget() {
   )
 }
 
-
 // ─── FavoriteRow ─────────────────────────────────────────────────────────────
 
-export function FavoriteRow({ fav, accentColor, isDragging,activeTabId, inFolder, depth =0  }) {
+export function FavoriteRow({ fav, accentColor, isDragging, activeTabId, inFolder, depth = 0 }) {
   const {
     removeFavorite, renameFavorite,
     activateFavorite, deactivateFavorite, resetFavoriteDrift,
@@ -42,11 +42,10 @@ export function FavoriteRow({ fav, accentColor, isDragging,activeTabId, inFolder
   const ownership = (favoriteOwnerships || []).find(
     o => o.favId === fav.id && o.windowId === myWindowId
   )
-    
+
   const isActive  = !!ownership
   const isDrifted = !!ownership?.drifted
   const isFocused = isActive && ownership?.tabId === activeTabId
-
 
   const favicon  = getFaviconSrc(fav.favIconUrl)
   const fallback = getFaviconFallback(fav.title, fav.url)
@@ -65,7 +64,6 @@ export function FavoriteRow({ fav, accentColor, isDragging,activeTabId, inFolder
     }
   }, [editing])
 
-
   const commitRename = () => {
     const next = draft.trim()
     if (next && next !== fav.title) renameFavorite(fav.id, next)
@@ -80,7 +78,7 @@ export function FavoriteRow({ fav, accentColor, isDragging,activeTabId, inFolder
   const handleRowClick = (e) => {
     if (editing) return
     if (e.target.closest('.fav-action-btn')) return
-    if (isDrifted) return  // drifted rows are click-disabled; user must reset or [-]
+    if (isDrifted) return
     activateFavorite(fav.id)
   }
 
@@ -97,7 +95,7 @@ export function FavoriteRow({ fav, accentColor, isDragging,activeTabId, inFolder
     <>
       <div
         className={`favorite-row${isActive ? ' is-active' : ''}${isDrifted ? ' is-drifted' : ''}${isFocused ? ' is-focused' : ''}${isDragging ? ' is-dragging' : ''}`}
-        style={{ '--accent-color': accentColor, opacity: isDragging ? 0.5 : 1, paddingLeft: `${8 + depth * 16}px` }}
+        style={{ '--accent-color': accentColor, opacity: isDragging ? 0.5 : 1, paddingLeft: `${8 + depth * 20}px` }}
         onClick={handleRowClick}
         onDoubleClick={(e) => {
           if (e.target.closest('.fav-action-btn')) return
@@ -206,12 +204,10 @@ function SortableFolderRow({ folder, ...props }) {
   )
 }
 
-
-
 // ─── FolderRow ───────────────────────────────────────────────────────────────
 
-function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
-  const { toggleFavoriteFolder, renameFavoriteFolder, deleteFavoriteFolder, createFavoriteFolder, favoriteFolderState, pendingRenameFolderId  } = useStore()
+function FolderRow({ folder, accentColor, children, depth = 0 }) {
+  const { toggleFavoriteFolder, renameFavoriteFolder, deleteFavoriteFolder, createFavoriteFolder, favoriteFolderState, pendingRenameFolderId } = useStore()
   const collapsed = !!favoriteFolderState?.[folder.id]
 
   const [editing, setEditing] = useState(false)
@@ -234,7 +230,6 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
     }
   }, [editing])
 
-  // Auto-enter edit mode when this folder was just created or just dragged into a folder
   useEffect(() => {
     if (pendingRenameFolderId === folder.id) {
       setDraft(folder.title)
@@ -253,9 +248,9 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
 
   return (
     <div className={`favorite-folder${isOver ? ' drop-target' : ''}`} ref={setDropRef}>
-        <div
+      <div
         className="folder-header"
-        style={{ paddingLeft: `${8 + depth * 16}px` }}
+        style={{ paddingLeft: `${8 + depth * 20}px` }}
         onClick={() => !editing && toggleFavoriteFolder(folder.id)}
         onDoubleClick={() => { setDraft(folder.title); setEditing(true) }}
         onContextMenu={(e) => {
@@ -263,9 +258,6 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
           setCtxMenu({ x: Math.min(e.clientX, window.innerWidth - 180), y: e.clientY })
         }}
       >
-        {/* <span
-          className="folder-drag-handle"
-        >⋮⋮</span> */}
         <span className={`folder-chevron${collapsed ? ' collapsed' : ''}`}>▾</span>
         <span className="folder-icon">📁</span>
         {editing ? (
@@ -282,10 +274,7 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <>
-            <span className="folder-name">{folder.title}</span>
-            <span className="folder-count">{childCount}</span>
-          </>
+          <span className="folder-name">{folder.title}</span>
         )}
       </div>
 
@@ -313,17 +302,6 @@ function FolderRow({ folder, accentColor, children, childCount, depth = 0}) {
 
 // ─── FavoritesBar ────────────────────────────────────────────────────────────
 
-/**
- * Build a recursive tree from flat folders + favorites arrays.
- * Returns an array of top-level nodes. Each node is either:
- *   { kind: 'folder', folder, children: Node[], favs: Favorite[] }
- *   { kind: 'fav', fav }
- * Children are sorted by order. Favs inside a folder live on that node.
- */
-/**
- * Build a tree where at each level, folders and favorites are interleaved
- * by their `order` field. A folder node contains its own mixed children.
- */
 function buildTree(favorites, folders, rootId) {
   const childrenByParent = new Map()
   const favsByParent     = new Map()
@@ -345,7 +323,6 @@ function buildTree(favorites, folders, rootId) {
       ...favChildren.map(f => ({ kind: 'fav', orderKey: f.order, fav: f })),
     ].sort((a, b) => a.orderKey - b.orderKey)
 
-    // Hydrate folder nodes with their own mixed children recursively
     return mixed.map(node => {
       if (node.kind === 'folder') {
         return {
@@ -361,18 +338,11 @@ function buildTree(favorites, folders, rootId) {
   return buildMixedChildren(rootId)
 }
 
-/**
- * Flatten a tree into the id list needed for SortableContext.
- * This is the DnD order: folder ids use 'fav-folder-<id>', fav ids use bare id.
- */
 function flattenForSortable(tree) {
   const ids = []
   for (const node of tree) {
     if (node.kind === 'folder') {
       ids.push(`fav-folder-${node.folder.id}`)
-      // We could recurse and put child ids here too, but SortableContext treats
-      // child favs as their own context inside the folder, so top-level list
-      // only needs top-level folders + top-level favs.
     } else {
       ids.push(node.fav.id)
     }
@@ -380,17 +350,15 @@ function flattenForSortable(tree) {
   return ids
 }
 
-// Recursive node renderer
 function FavoritesTreeNode({ node, accentColor, depth = 0, activeTabId }) {
   if (node.kind === 'fav') {
     return <SortableFavoriteRow id={node.fav.id} fav={node.fav} accentColor={accentColor} depth={depth} activeTabId={activeTabId} />
   }
-  // Folder node with interleaved children
   const childIds = node.children.map(c =>
     c.kind === 'folder' ? `fav-folder-${c.folder.id}` : c.fav.id
   )
   return (
-    <SortableFolderRow folder={node.folder} accentColor={accentColor} depth={depth} childCount={countFolderItems(node)}>
+    <SortableFolderRow folder={node.folder} accentColor={accentColor} depth={depth}>
       <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
         {node.children.map((child) => (
           <FavoritesTreeNode
@@ -406,17 +374,8 @@ function FavoritesTreeNode({ node, accentColor, depth = 0, activeTabId }) {
   )
 }
 
-function countFolderItems(node) {
-  let count = 0
-  for (const child of node.children) {
-    if (child.kind === 'fav') count += 1
-    else count += countFolderItems(child)
-  }
-  return count
-}
-
 export default function FavoritesBar({ favorites, folders, accentColor, favoritesRootId, depth = 0, activeTabId }) {
-  const { createFavoriteFolder, bookmarksFailed } = useStore()
+  const { bookmarksFailed } = useStore()
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: 'favorites-droppable' })
 
   const tree = buildTree(favorites, folders, favoritesRootId)
@@ -450,18 +409,8 @@ export default function FavoritesBar({ favorites, folders, accentColor, favorite
             </div>
           )}
           {tree.length > 0 && <RootDropTarget />}
-
         </div>
       </SortableContext>
-
-      <button
-        className="favorites-add-folder-btn"
-        onClick={(e) => { e.stopPropagation(); createFavoriteFolder('New folder') }}
-        onPointerDown={(e) => e.stopPropagation()}
-        title="New folder"
-      >
-        + New folder
-      </button>
     </div>
   )
 }
